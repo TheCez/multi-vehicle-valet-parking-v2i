@@ -21,8 +21,8 @@ name_scenario: valet_parking
 planning:
   coordinate_system: CVLN
   dt: 0.1
-  p_lat_initial: 0.32024112854004017
-  p_lon_initial: 47.68669617919922
+  p_lat_initial: 0.3666907679596434
+  p_lon_initial: 23.1532512566176
   reference_point: CENTER
   step_start: 0
   steps_computation: 10
@@ -30,8 +30,8 @@ planning:
   uncertainty_p_lon: 0.01
   uncertainty_v_lat: 0.01
   uncertainty_v_lon: 0.01
-  v_lat_initial: 1.3402555335756627
-  v_lon_initial: 8.089728988335754
+  v_lat_initial: 1.8637457338094499
+  v_lon_initial: -7.985389899041065
 reachable_set:
   consider_traffic: true
   exclude_small_components_corridor: false

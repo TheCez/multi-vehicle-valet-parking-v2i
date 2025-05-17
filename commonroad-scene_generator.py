@@ -23,11 +23,12 @@ import time
 from PyQt6.QtWidgets import QApplication, QMainWindow
 from PyQt6.QtCore import QTimer
 import pyqtgraph as pg
-from visualize import CommonRoadVisualizer
+#from visualize import CommonRoadVisualizer
 # from commonroad_reach import ReachableSetComputation
 # from commonroad_reach.vehicle import VehicleParameters
 from configuration_creator import create_base_configuration, update_with_dynamic_scenario, real_time_reachability_analysis
 from commonroad_reach.utility import visualization as util_visual
+from mp_visualizer.CommonRoadVisualizer import CommonRoadVisualizer
 
 # Load the converted scenario
 scenario_path = "DEU_valetparking-1_1_T-1_base.xml"
@@ -135,15 +136,21 @@ base_config.planning.steps_computation = 10
 #reach_interface = real_time_reachability_analysis(base_config, live_scenario, planning_problem)
 # #util_visual.plot_scenario_with_reachable_sets(reach_interface)
 
-#visualization
+# #visualization
+# app = QApplication([])
+# window = CommonRoadVisualizer(base_config, scenario, planning_problem, world)
+# window.setGeometry(100, 100, 800, 600)
+# window.show()
+# # Start application
+# app.exec()
+
+# # 7. Visualize the scenario with MPRenderer
 app = QApplication([])
 window = CommonRoadVisualizer(base_config, scenario, planning_problem, world)
 window.setGeometry(100, 100, 800, 600)
 window.show()
-# Start application
+# # Start application
 app.exec()
-
-
 
 
 
