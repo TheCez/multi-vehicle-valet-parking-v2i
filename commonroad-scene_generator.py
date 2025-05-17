@@ -59,51 +59,18 @@ initial_state = InitialState(
 
     )
 
-# Ego vehicle update function
-def update_ego_state():
-    #global scenario
-    global initial_state
-    global position
-    global orientation
-    global ego_obstacle
-
-    # Get the CommonRoad position and orientation
-    position,orientation = carla_to_commonroad_transform_actor(ego_vehicle)
-    #print(f"Position: {position}, Orientation: {orientation}")
-
-    # Make InitialState
-    initial_state = InitialState(
-            position=position,
-            orientation=orientation,
-            velocity=8.2,  # Example velocity in m/s
-            time_step=0,
-            yaw_rate=0.0,  # Example yaw rate in rad/s
-            slip_angle=0.0,  # Example slip angle in rad
-
-        )
-
-    # 4. Create DynamicObstacle with converted state
-    ego_obstacle = DynamicObstacle(
-        obstacle_id=scenario.generate_object_id(),
-        obstacle_type=ObstacleType.CAR,
-        initial_state=initial_state,
-        obstacle_shape=ego_shape,
-        prediction=TrajectoryPrediction(
-            trajectory=Trajectory(initial_time_step=0, state_list=[initial_state]),  # Replaced StateTrajectory with a simple list of states
-            shape=ego_shape
-        )
+# 4. Create DynamicObstacle with converted state
+ego_obstacle = DynamicObstacle(
+    obstacle_id=scenario.generate_object_id(),
+    obstacle_type=ObstacleType.CAR,
+    initial_state=initial_state,
+    obstacle_shape=ego_shape,
+    prediction=TrajectoryPrediction(
+        trajectory=Trajectory(initial_time_step=0, state_list=[initial_state]),  # Replaced StateTrajectory with a simple list of states
+        shape=ego_shape
     )
+)
 
-    new_scenario = scenario
-    # 5. Add to scenario
-    new_scenario.add_objects(ego_obstacle)
-
-    new_scenario.assign_obstacles_to_lanelets()
-    return new_scenario
-
-
-
-live_scenario = update_ego_state()
 # 6. Make a Goal
 # Define goal position as a shape (Rectangle)
 goal_shape = Rectangle(
@@ -134,17 +101,6 @@ base_config = create_base_configuration()
 base_config.planning.steps_computation = 10
 #base_config.planning.coordinate_system = "CART"
 
-#reach_interface = real_time_reachability_analysis(base_config, live_scenario, planning_problem)
-# #util_visual.plot_scenario_with_reachable_sets(reach_interface)
-
-# #visualization
-# app = QApplication([])
-# window = CommonRoadVisualizer(base_config, scenario, planning_problem, world)
-# window.setGeometry(100, 100, 800, 600)
-# window.show()
-# # Start application
-# app.exec()
-
 # # 7. Visualize the scenario with MPRenderer
 app = QApplication([])
 window = CommonRoadVisualizer(base_config, scenario, planning_problem, world)
@@ -152,87 +108,3 @@ window.setGeometry(100, 100, 800, 600)
 window.show()
 # # Start application
 app.exec()
-
-
-
-# # 7. Visualize the scenario
-
-# plt.ion()  # Turn on interactive mode
-# rnd = MPRenderer(figsize=(15, 7))
-
-# def visualization_thread(rnd):
-#     plt.show()
-
-# # Initial draw to create the figure and axes
-# live_scenario.draw(rnd)
-# planning_problem.draw(rnd)
-# rnd.render(show=False)
-# plt.show(block=False)
-
-
-# try:
-#     while True:
-#         start = time.time()
-
-#         # Update scenario (e.g., update ego position from CARLA)
-#         live_scenario= update_ego_state()  # Your function
-
-#         # Redraw
-#         rnd.clear()
-#         live_scenario.draw(rnd)
-#         planning_problem.draw(rnd)
-#         plt.draw()
-#         plt.pause(0.001)  # This keeps the GUI responsive
-
-#         # Maintain ~30 FPS (33ms per frame)
-#         elapsed = time.time() - start
-#         sleep_time = max(0, (1.0/30) - elapsed)
-#         time.sleep(sleep_time)
-
-# except KeyboardInterrupt:
-#     plt.ioff()
-#     plt.close()
-#     print("Visualization stopped.")
-
-# # Initialize plot in separate thread
-# rnd = MPRenderer(figsize=(15, 7))
-# thread = threading.Thread(target=visualization_thread, args=(rnd,))
-# thread.daemon = True
-# thread.start()
-
-# while True:
-#     # Update CARLA/CommonRoad state
-#     update_ego_state()  # Your state update logic
-    
-#     # Redraw
-#     rnd.clear()
-#     scenario.draw(rnd)
-#     planning_problem.draw(rnd)
-#     plt.draw()
-#     plt.pause(0.001)
-
-
-
-# # After creating scenario and planning_problem:
-# rnd = MPRenderer(figsize=(25, 10))  # Adjust figsize as needed
-
-# # Draw scenario elements
-# live_scenario.draw(rnd)
-# planning_problem.draw(rnd)  # Requires PlanningProblemSet wrapping
-
-# # Render the plot
-# rnd.render(show=True)
-# plt.show()
-
-
-# 6. Save the modified scenario
-# Store generated scenario
-# CommonRoadFileWriter(
-#     scenario,
-#     PlanningProblemSet([planning_problem]),
-#     author="Ajay",
-#     affiliation="Technical University of Braunschweig",
-#     source="CARLA",
-#     tags={Tag.URBAN},
-# ).write_to_file(None, OverwriteExistingFile.ALWAYS)
-
