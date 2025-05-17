@@ -93,7 +93,7 @@ class CommonRoadVisualizer(QMainWindow):
             self.planning_problem.initial_state = initial_state
             
             # Perform reachability analysis
-            current_step = 10
+            current_step = self.base_config.planning.steps_computation
             self.reach_interface = real_time_reachability_analysis(
                 self.base_config, self.scenario, self.planning_problem
             )

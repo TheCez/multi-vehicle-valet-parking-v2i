@@ -107,8 +107,8 @@ live_scenario = update_ego_state()
 # 6. Make a Goal
 # Define goal position as a shape (Rectangle)
 goal_shape = Rectangle(
-    length=5.0,  # Length along the lane
-    width=3.0,   # Width across the lane
+    length=4,  # Length along the lane
+    width=5,   # Width across the lane
     center=np.array(ego_goal_position, dtype=np.float64)  # Center coordinates
 )
 
@@ -132,6 +132,7 @@ planning_problem = PlanningProblem(
 # # commonroad reach
 base_config = create_base_configuration()
 base_config.planning.steps_computation = 10
+#base_config.planning.coordinate_system = "CART"
 
 #reach_interface = real_time_reachability_analysis(base_config, live_scenario, planning_problem)
 # #util_visual.plot_scenario_with_reachable_sets(reach_interface)
