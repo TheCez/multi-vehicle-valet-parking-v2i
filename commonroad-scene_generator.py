@@ -17,8 +17,17 @@ import numpy as np
 from commonroad.visualization.mp_renderer import MPRenderer
 import matplotlib.pyplot as plt
 import threading
+import time
+
+#visualization
+from PyQt6.QtWidgets import QApplication, QMainWindow
+from PyQt6.QtCore import QTimer
+import pyqtgraph as pg
+from visualize import CommonRoadVisualizer
 # from commonroad_reach import ReachableSetComputation
 # from commonroad_reach.vehicle import VehicleParameters
+from configuration_creator import create_base_configuration, update_with_dynamic_scenario, real_time_reachability_analysis
+from commonroad_reach.utility import visualization as util_visual
 
 # Load the converted scenario
 scenario_path = "DEU_valetparking-1_1_T-1_base.xml"
@@ -38,11 +47,27 @@ goal_position = ([21.841997,43.342876], 89.503952)
 ego_goal_position, ego_goal_orientation = carla_to_commonroad_transform_actor_manual(goal_position)
 ego_goal_orientation = abs(ego_goal_orientation)
 
+position,orientation = carla_to_commonroad_transform_actor(ego_vehicle)
+initial_state = InitialState(
+        position=position,
+        orientation=orientation,
+        velocity=8.2,  # Example velocity in m/s
+        time_step=0,
+        yaw_rate=0.0,  # Example yaw rate in rad/s
+        slip_angle=0.0,  # Example slip angle in rad
+
+    )
+
 # Ego vehicle update function
 def update_ego_state():
+    #global scenario
+    global initial_state
+    global position
+    global orientation
+    global ego_obstacle
 
     # Get the CommonRoad position and orientation
-    position, orientation = carla_to_commonroad_transform_actor(ego_vehicle)
+    position,orientation = carla_to_commonroad_transform_actor(ego_vehicle)
     #print(f"Position: {position}, Orientation: {orientation}")
 
     # Make InitialState
@@ -68,15 +93,16 @@ def update_ego_state():
         )
     )
 
+    new_scenario = scenario
     # 5. Add to scenario
-    scenario.add_objects(ego_obstacle)
+    new_scenario.add_objects(ego_obstacle)
 
-    scenario.assign_obstacles_to_lanelets()
+    new_scenario.assign_obstacles_to_lanelets()
+    return new_scenario
 
-    return initial_state
 
 
-initial_state=update_ego_state()
+live_scenario = update_ego_state()
 # 6. Make a Goal
 # Define goal position as a shape (Rectangle)
 goal_shape = Rectangle(
@@ -102,10 +128,20 @@ planning_problem = PlanningProblem(
 )
 
 
+# # commonroad reach
+base_config = create_base_configuration()
+base_config.planning.steps_computation = 10
 
+#reach_interface = real_time_reachability_analysis(base_config, live_scenario, planning_problem)
+# #util_visual.plot_scenario_with_reachable_sets(reach_interface)
 
-
-
+#visualization
+app = QApplication([])
+window = CommonRoadVisualizer(base_config, scenario, planning_problem, world)
+window.setGeometry(100, 100, 800, 600)
+window.show()
+# Start application
+app.exec()
 
 
 
@@ -113,8 +149,42 @@ planning_problem = PlanningProblem(
 
 # # 7. Visualize the scenario
 
+# plt.ion()  # Turn on interactive mode
+# rnd = MPRenderer(figsize=(15, 7))
+
 # def visualization_thread(rnd):
 #     plt.show()
+
+# # Initial draw to create the figure and axes
+# live_scenario.draw(rnd)
+# planning_problem.draw(rnd)
+# rnd.render(show=False)
+# plt.show(block=False)
+
+
+# try:
+#     while True:
+#         start = time.time()
+
+#         # Update scenario (e.g., update ego position from CARLA)
+#         live_scenario= update_ego_state()  # Your function
+
+#         # Redraw
+#         rnd.clear()
+#         live_scenario.draw(rnd)
+#         planning_problem.draw(rnd)
+#         plt.draw()
+#         plt.pause(0.001)  # This keeps the GUI responsive
+
+#         # Maintain ~30 FPS (33ms per frame)
+#         elapsed = time.time() - start
+#         sleep_time = max(0, (1.0/30) - elapsed)
+#         time.sleep(sleep_time)
+
+# except KeyboardInterrupt:
+#     plt.ioff()
+#     plt.close()
+#     print("Visualization stopped.")
 
 # # Initialize plot in separate thread
 # rnd = MPRenderer(figsize=(15, 7))
@@ -129,22 +199,22 @@ planning_problem = PlanningProblem(
 #     # Redraw
 #     rnd.clear()
 #     scenario.draw(rnd)
-#     planning_problem_set.draw(rnd)
+#     planning_problem.draw(rnd)
 #     plt.draw()
 #     plt.pause(0.001)
 
 
 
-# After creating scenario and planning_problem:
-rnd = MPRenderer(figsize=(25, 10))  # Adjust figsize as needed
+# # After creating scenario and planning_problem:
+# rnd = MPRenderer(figsize=(25, 10))  # Adjust figsize as needed
 
-# Draw scenario elements
-scenario.draw(rnd)
-planning_problem.draw(rnd)  # Requires PlanningProblemSet wrapping
+# # Draw scenario elements
+# live_scenario.draw(rnd)
+# planning_problem.draw(rnd)  # Requires PlanningProblemSet wrapping
 
-# Render the plot
-rnd.render(show=True)
-plt.show()
+# # Render the plot
+# rnd.render(show=True)
+# plt.show()
 
 
 # 6. Save the modified scenario
