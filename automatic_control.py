@@ -760,8 +760,9 @@ def game_loop(args):
         destination = random.choice(spawn_points).location
         destination = spawn_points[20].location
         agent.set_destination(destination)
-
         clock = pygame.time.Clock()
+        test = CommonRoadSceneGenerator()
+        test.run()
 
         while True:
             clock.tick()
@@ -771,6 +772,8 @@ def game_loop(args):
                 world.world.wait_for_tick()
             if controller.parse_events():
                 return
+            
+            
 
             world.tick(clock)
             world.render(display)
@@ -788,6 +791,7 @@ def game_loop(args):
             control = agent.run_step()
             control.manual_gear_shift = False
             world.player.apply_control(control)
+            #test.window.update_visualization()
 
     finally:
 

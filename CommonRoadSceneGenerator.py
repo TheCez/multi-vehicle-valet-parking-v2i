@@ -174,15 +174,20 @@ class CommonRoadSceneGenerator:
         # Commonroad reach
         self.base_config = create_base_configuration()
         self.base_config.planning.steps_computation = 10
+        #self.window = CommonRoadVisualizer(self.base_config, self.scenario, self.planning_problem, self.world)
 
     def run(self):
-        # Visualize the scenario with MPRenderer
-        app = QApplication([])
-        window = CommonRoadVisualizer(self.base_config, self.scenario, self.planning_problem, self.world)
-        window.setGeometry(100, 100, 800, 600)
-        window.show()
-        app.exec()
+        # Visualize the scenario with MPRenderer in a separate thread
+        def visualize():
+            app = QApplication([])
+            window = CommonRoadVisualizer(self.base_config, self.scenario, self.planning_problem, self.world)
+            window.setGeometry(100, 100, 800, 600)
+            window.show()
+            app.exec()
+
+        vis_thread = threading.Thread(target=visualize, daemon=True)
+        vis_thread.start()
 
 
-# test = CommonRoadSceneGenerator()
-# test.run()
+test = CommonRoadSceneGenerator()
+test.run()

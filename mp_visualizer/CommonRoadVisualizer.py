@@ -42,10 +42,10 @@ class CommonRoadVisualizer(QMainWindow):
         # Draw static elements initially
         self.draw_static_elements()
         
-        # Set up update timer
-        self.timer = QTimer()
-        self.timer.timeout.connect(self.update_visualization)
-        self.timer.start(100)  # 10 FPS - matplotlib is slower than pyqtgraph
+        # # Set up update timer
+        # self.timer = QTimer()
+        # self.timer.timeout.connect(self.update_visualization)
+        # self.timer.start(100)  # 10 FPS - matplotlib is slower than pyqtgraph
 
     def draw_static_elements(self):
         """Draw static elements of the scenario"""
