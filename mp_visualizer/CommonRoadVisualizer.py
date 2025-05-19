@@ -16,7 +16,7 @@ from PyQt6.QtCore import QObject, pyqtSignal, QMutex, QMutexLocker
 
 class CommonRoadVisualizer(QMainWindow):
     """Class for visualizing CommonRoad scenarios with MPRenderer in a PyQt application."""
-    def __init__(self, base_config, scenario, planning_problem, world):
+    def __init__(self, base_config, scenario, planning_problem, world, ego_vehicle=None):
         super().__init__()
         self.setWindowTitle("CommonRoad Visualization with MPRenderer")
         
@@ -27,7 +27,8 @@ class CommonRoadVisualizer(QMainWindow):
         self.scenario = scenario
         self.planning_problem = planning_problem
         self.base_config = base_config
-        self.reach_interface = None        
+        self.reach_interface = None  
+        self.ego_vehicle = ego_vehicle
         # Setup layout
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
@@ -83,8 +84,8 @@ class CommonRoadVisualizer(QMainWindow):
         
             try:
                 # Get latest CARLA state
-                ego_vehicle = self.world.get_actors().filter('vehicle.*')[0]
-                position, orientation = carla_to_commonroad_transform_actor(ego_vehicle)
+                # ego_vehicle = self.world.get_actors().filter('vehicle.*')[0]
+                position, orientation = carla_to_commonroad_transform_actor(self.ego_vehicle)
                 
                 # Update the planning problem's initial state
                 initial_state = InitialState(

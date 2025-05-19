@@ -775,7 +775,7 @@ def game_loop(args):
         # Initialize Qt in the main thread
         app = QApplication([])
         test = CommonRoadSceneGenerator(world.player)
-        window = CommonRoadVisualizer(test.base_config, test.scenario, test.planning_problem, test.world)
+        window = CommonRoadVisualizer(test.base_config, test.scenario, test.planning_problem, test.world, world.player)
         window.setGeometry(100, 100, 800, 600)
         window.show()
             # Force initial GUI update
