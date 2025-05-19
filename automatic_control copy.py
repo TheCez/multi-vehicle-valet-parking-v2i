@@ -70,7 +70,6 @@ from CommonRoadSceneGenerator import CommonRoadSceneGenerator
 from PyQt6.QtWidgets import QApplication
 from mp_visualizer.CommonRoadVisualizer import CommonRoadVisualizer
 from PyQt6.QtCore import QTimer
-from VisualizationThread import VisualizationThread
 # ==============================================================================
 # -- Global functions ----------------------------------------------------------
 # ==============================================================================
@@ -717,10 +716,8 @@ def game_loop(args):
     ticking the agent and, if needed, the world.
     """
 
-
+    # Initialize Qt application in main thread
     # app = QApplication([])
-    # # Force initial GUI update
-    # QApplication.processEvents()
     
 
 
@@ -768,35 +765,24 @@ def game_loop(args):
         # Set the agent destination
         spawn_points = world.map.get_spawn_points()
         destination = random.choice(spawn_points).location
-        destination = spawn_points[7].location
+        destination = spawn_points[20].location
         agent.set_destination(destination)
         clock = pygame.time.Clock()
-
-        # Initialize Qt in the main thread
-        app = QApplication([])
-        test = CommonRoadSceneGenerator(world.player)
-        window = CommonRoadVisualizer(test.base_config, test.scenario, test.planning_problem, test.world)
-        window.setGeometry(100, 100, 800, 600)
-        window.show()
-            # Force initial GUI update
-        QApplication.processEvents()
         #test = CommonRoadSceneGenerator()
         #test.run()
+        # Create QTimer for Qt event processing
 
-
+        #         # Create your Qt window
         # test = CommonRoadSceneGenerator()
-        # vis_thread = VisualizationThread(
-        #     test.base_config,
-        #     test.scenario,
-        #     test.planning_problem,
-        #     test.world
-        # )
-        # vis_thread.start()
+        # window = CommonRoadVisualizer(test.base_config, test.scenario, test.planning_problem, test.world)  # Your visualization window
+        # timer = QTimer()
+        # timer.timeout.connect(lambda: None)  # Empty lambda to force event processing
+        # timer.start(30)  # Update every 30ms
 
         while True:
 
             # Process Qt events in each iteration
-            # QApplication.processEvents()
+            QApplication.processEvents()
             clock.tick()
             if args.sync:
                 world.world.tick()
@@ -804,6 +790,8 @@ def game_loop(args):
                 world.world.wait_for_tick()
             if controller.parse_events():
                 return
+            # Update Qt visualization
+            # window.update_visualization() 
             
 
             world.tick(clock)
@@ -823,17 +811,6 @@ def game_loop(args):
             control.manual_gear_shift = False
             world.player.apply_control(control)
             #test.window.update_visualization()
-                    # Update visualization
-            window.update_visualization()
-            
-            # Process Qt events without blocking
-            QApplication.processEvents()
-            
-            # [Exit conditions]
-            if controller.parse_events():
-                break
-            # Cleanup
-        app.quit()
 
     finally:
 

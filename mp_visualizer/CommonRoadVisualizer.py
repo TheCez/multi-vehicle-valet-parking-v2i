@@ -11,8 +11,11 @@ from mp_visualizer.MPRendererCanvas import MPRendererCanvas
 from commonroad_reach.utility.visualization import generate_default_drawing_parameters, draw_reachable_sets, compute_plot_limits_from_reachable_sets, draw_drivable_area
 import seaborn as sns
 import matplotlib.pyplot as plt
+from PyQt6.QtCore import QObject, pyqtSignal, QMutex, QMutexLocker
+
 
 class CommonRoadVisualizer(QMainWindow):
+    """Class for visualizing CommonRoad scenarios with MPRenderer in a PyQt application."""
     def __init__(self, base_config, scenario, planning_problem, world):
         super().__init__()
         self.setWindowTitle("CommonRoad Visualization with MPRenderer")
@@ -24,8 +27,7 @@ class CommonRoadVisualizer(QMainWindow):
         self.scenario = scenario
         self.planning_problem = planning_problem
         self.base_config = base_config
-        self.reach_interface = None
-        
+        self.reach_interface = None        
         # Setup layout
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
@@ -70,63 +72,68 @@ class CommonRoadVisualizer(QMainWindow):
 
     def update_visualization(self):
         """Update dynamic elements (ego vehicle and reachability analysis)"""
+
+        # with QMutexLocker(self.mutex):
         # Clear previous visualization
         self.canvas.clear()
         
         # Re-draw static elements
         self.draw_static_elements()
-        
         try:
-            # Get latest CARLA state
-            ego_vehicle = self.world.get_actors().filter('vehicle.*')[0]
-            position, orientation = carla_to_commonroad_transform_actor(ego_vehicle)
-            
-            # Update the planning problem's initial state
-            initial_state = InitialState(
-                position=position,
-                orientation=orientation,
-                velocity=8.2,
-                time_step=0,
-                yaw_rate=0.0,
-                slip_angle=0.0,
-            )
-            self.planning_problem.initial_state = initial_state
-            
-            # Perform reachability analysis
-            current_step = self.base_config.planning.steps_computation
-            self.reach_interface = real_time_reachability_analysis(
-                self.base_config, self.scenario, self.planning_problem
-            )
-            
-            # Draw ego vehicle
-            from commonroad.geometry.shape import Rectangle
-            from commonroad.scenario.obstacle import DynamicObstacle, ObstacleType
-            
-            ego_rect = Rectangle(length=4.3, width=1.8, center=np.zeros(2))
-            ego_obstacle = DynamicObstacle(
-                obstacle_id=100000,
-                obstacle_type=ObstacleType.CAR,
-                obstacle_shape=ego_rect,
-                initial_state=initial_state
-            )
-
-            # Create a proper DrawParams object for dynamic obstacles
-            from commonroad.visualization.draw_params import DynamicObstacleParams
-            draw_params = DynamicObstacleParams()
-            draw_params.facecolor = 'red'  # Set the color property
-            
-            # Draw the ego vehicle with custom styling
-            ego_obstacle.draw(self.canvas.mp_renderer, draw_params=draw_params)
-            
-            # Draw reachable sets if available
-            if self.reach_interface:
-                self.draw_reachable_area(current_step)
         
+            try:
+                # Get latest CARLA state
+                ego_vehicle = self.world.get_actors().filter('vehicle.*')[0]
+                position, orientation = carla_to_commonroad_transform_actor(ego_vehicle)
+                
+                # Update the planning problem's initial state
+                initial_state = InitialState(
+                    position=position,
+                    orientation=orientation,
+                    velocity=0,
+                    time_step=0,
+                    yaw_rate=0.0,
+                    slip_angle=0.0,
+                )
+                self.planning_problem.initial_state = initial_state
+                
+                # Perform reachability analysis
+                current_step = self.base_config.planning.steps_computation
+                self.reach_interface = real_time_reachability_analysis(
+                    self.base_config, self.scenario, self.planning_problem
+                )
+                
+                # Draw ego vehicle
+                from commonroad.geometry.shape import Rectangle
+                from commonroad.scenario.obstacle import DynamicObstacle, ObstacleType
+                
+                ego_rect = Rectangle(length=4.3, width=1.8, center=np.zeros(2))
+                ego_obstacle = DynamicObstacle(
+                    obstacle_id=100000,
+                    obstacle_type=ObstacleType.CAR,
+                    obstacle_shape=ego_rect,
+                    initial_state=initial_state
+                )
+
+                # Create a proper DrawParams object for dynamic obstacles
+                from commonroad.visualization.draw_params import DynamicObstacleParams
+                draw_params = DynamicObstacleParams()
+                draw_params.facecolor = 'red'  # Set the color property
+                
+                # Draw the ego vehicle with custom styling
+                ego_obstacle.draw(self.canvas.mp_renderer, draw_params=draw_params)
+                
+                # Draw reachable sets if available
+                if self.reach_interface:
+                    self.draw_reachable_area(current_step)
+            
+            except Exception as e:
+                print(f"Error in update_visualization: {e}")
+            
+            # Render the updated visualization
+            self.canvas.render()
         except Exception as e:
             print(f"Error in update_visualization: {e}")
-        
-        # Render the updated visualization
-        self.canvas.render()
 
     def draw_reachable_area(self, current_step):
         """Draw the reachable area for the current time step"""
@@ -138,10 +145,10 @@ class CommonRoadVisualizer(QMainWindow):
         draw_params.shape.facecolor = palette[0]
         draw_params.shape.edgecolor = edge_color
         # Get drivable area
-        #list_nodes = self.reach_interface.reachable_set_at_step(current_step)
-        #draw_reachable_sets(list_nodes, config, self.canvas.mp_renderer, draw_params)
-        list_nodes = self.reach_interface.drivable_area_at_step(current_step)
-        draw_drivable_area(list_nodes, config, self.canvas.mp_renderer, draw_params)
+        list_nodes = self.reach_interface.reachable_set_at_step(current_step)
+        draw_reachable_sets(list_nodes, config, self.canvas.mp_renderer, draw_params)
+        #list_nodes = self.reach_interface.drivable_area_at_step(current_step)
+        #draw_drivable_area(list_nodes, config, self.canvas.mp_renderer, draw_params)
         #self.canvas.mp_renderer.ax.autoscale(enable=True)
         #plot_limits = compute_plot_limits_from_reachable_sets(self.reach_interface)
         #self.canvas.mp_renderer.plot_limits = plot_limits

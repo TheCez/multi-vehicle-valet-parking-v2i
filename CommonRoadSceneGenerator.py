@@ -111,7 +111,7 @@ from mp_visualizer.CommonRoadVisualizer import CommonRoadVisualizer
 
 
 class CommonRoadSceneGenerator:
-    def __init__(self):
+    def __init__(self, ego_vehicle):
         # Load the converted scenario
         scenario_path = "DEU_valetparking-1_1_T-1_base.xml"
         self.scenario, _ = CommonRoadFileReader(scenario_path).open()
@@ -120,7 +120,8 @@ class CommonRoadSceneGenerator:
         self.client = carla.Client('localhost', 2000)
         self.world = self.client.get_world()
         # Get the ego vehicle actor
-        self.ego_vehicle = self.world.get_actors().filter('vehicle.*')[0]  # Assuming the first vehicle is the ego vehicle
+        self.ego_vehicle = ego_vehicle  # Assuming ego_vehicle is passed as an argument
+        #self.ego_vehicle = self.world.get_actors().filter('vehicle.*')[0]  # Assuming the first vehicle is the ego vehicle
 
         self.ego_shape = Rectangle(length=4.3, width=1.8)
 
@@ -132,7 +133,7 @@ class CommonRoadSceneGenerator:
         self.initial_state = InitialState(
             position=position,
             orientation=orientation,
-            velocity=8.2,
+            velocity=0,
             time_step=0,
             yaw_rate=0.0,
             slip_angle=0.0,
@@ -174,6 +175,8 @@ class CommonRoadSceneGenerator:
         # Commonroad reach
         self.base_config = create_base_configuration()
         self.base_config.planning.steps_computation = 10
+        # self.base_config.planning.coordinate_system = "CART"
+        #self.base_config.vehicle.ego.id_type_vehicle
         #self.window = CommonRoadVisualizer(self.base_config, self.scenario, self.planning_problem, self.world)
 
     def run(self):
@@ -189,5 +192,5 @@ class CommonRoadSceneGenerator:
         vis_thread.start()
 
 
-test = CommonRoadSceneGenerator()
-test.run()
+# test = CommonRoadSceneGenerator()
+# test.run()
