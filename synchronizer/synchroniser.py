@@ -270,6 +270,20 @@ class Subscriber:
             self.context = zmq.Context()
             self.sync_socket = self.context.socket(zmq.REQ)
 
+    def close(self):
+        self.running = False
+        try:
+            self.sub_socket.setsockopt(zmq.LINGER, 0)
+            self.sub_socket.close()
+            self.sync_socket.setsockopt(zmq.LINGER, 0)
+            self.sync_socket.close()
+            self.hb_socket.setsockopt(zmq.LINGER, 0)
+            self.hb_socket.close()
+            self.context.term()
+            print("Subscriber sockets closed.")
+        except Exception as e:
+            print(f"Error during subscriber cleanup: {e}")
+
 
     # def send_termination_signal(self):
     #     try:
