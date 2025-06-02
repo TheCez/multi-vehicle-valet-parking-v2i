@@ -71,7 +71,7 @@ from PyQt6.QtWidgets import QApplication
 from mp_visualizer.CommonRoadVisualizer import CommonRoadVisualizer
 from PyQt6.QtCore import QTimer
 from VisualizationThread import VisualizationThread
-from synchronizer.synchroniser import Subscriber
+from synchroniser.synchroniser import Subscriber
 import time
 # ==============================================================================
 # -- Global functions ----------------------------------------------------------
