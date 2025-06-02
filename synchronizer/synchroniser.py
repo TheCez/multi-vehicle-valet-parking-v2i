@@ -196,32 +196,44 @@ class Subscriber:
         self.hb_socket = self.context.socket(zmq.DEALER)
         self.hb_socket.connect(f"tcp://localhost:{hb_port}")
 
+        self.heartbeat_thread = threading.Thread(target=self.send_heartbeat, daemon=True)
+        self.heartbeat_thread.start()
+
+
+    def send_heartbeat(self):
+        """Send periodic heartbeat messages to the Master to indicate liveness."""
+        heartbeat_interval = 2
+        while self.running:
+            try:
+                self.hb_socket.send(b"HB_ACK")
+                time.sleep(heartbeat_interval)
+            except zmq.ZMQError as e:
+                print(f"Heartbeat send failed: {e}")
+                time.sleep(0.3)
+
     def receive_messages(self):
-        last_hb = time.time()
-        hb_interval = 2  # Expected heartbeat interval
+        # last_hb = time.time()
+        # hb_interval = 2  # Expected heartbeat interval
         while self.running:
                     # Send heartbeats via dedicated socket
-            if time.time() - last_hb > 2:
-                self.hb_socket.send(b"HB_ACK")
-                last_hb = time.time()
+            # if time.time() - last_hb > 2:
+            #     self.hb_socket.send(b"HB_ACK")
+            #     last_hb = time.time()
             try:
                 # Use poll for combined message handling
                 if self.sub_socket.poll(100, zmq.POLLIN):
                     message = self.sub_socket.recv_string()
-                    if message == "HB":
-                        self.sync_socket.send_string("HB_ACK")
-                        last_hb = time.time()
-                    elif message == "TICK":
+                    if message == "TICK":
                         print(f"Received message: {message}")
                         self.acknowledge_message()
                         self.message_count += 1  # Increment counter
                                 # Detect heartbeat timeouts
                         
-                # Graceful timeout handling
-                if time.time() - last_hb > hb_interval * 3:
-                    print("Master connection unstable...")
-                    self.reset_connection()
-                    last_hb = time.time()  # Prevent immediate retrigger
+                # # Graceful timeout handling
+                # if time.time() - last_hb > hb_interval * 3:
+                #     print("Master connection unstable...")
+                #     self.reset_connection()
+                #     last_hb = time.time()  # Prevent immediate retrigger
                     
             except Exception as e:
                 print(f"Critical error: {e}")
