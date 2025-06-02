@@ -322,12 +322,12 @@ if __name__ == "__main__":
 
     #master = Master()
 
-    for _ in range(100):
+    while True:
         world.tick()
         print("CARLA world ticked")
         print(master.no_of_subscribers)
         master.broadcast_tick()
-        time.sleep(1)
+        time.sleep(0.5)
     #subscriber = Subscriber()
 
     # # Simulate sending data

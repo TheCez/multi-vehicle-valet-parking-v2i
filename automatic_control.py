@@ -71,6 +71,8 @@ from PyQt6.QtWidgets import QApplication
 from mp_visualizer.CommonRoadVisualizer import CommonRoadVisualizer
 from PyQt6.QtCore import QTimer
 from VisualizationThread import VisualizationThread
+from synchronizer.synchroniser import Subscriber
+import time
 # ==============================================================================
 # -- Global functions ----------------------------------------------------------
 # ==============================================================================
@@ -722,7 +724,7 @@ def game_loop(args):
     # # Force initial GUI update
     # QApplication.processEvents()
     
-
+    subscriber = Subscriber()
 
     pygame.init()
     pygame.font.init()
@@ -780,6 +782,7 @@ def game_loop(args):
         window.show()
             # Force initial GUI update
         QApplication.processEvents()
+
         #test = CommonRoadSceneGenerator()
         #test.run()
 
@@ -794,58 +797,71 @@ def game_loop(args):
         # vis_thread.start()
 
         while True:
+            if subscriber.receive_messages():
 
-            # Process Qt events in each iteration
-            # QApplication.processEvents()
-            clock.tick()
-            if args.sync:
-                world.world.tick()
-            else:
-                world.world.wait_for_tick()
-            if controller.parse_events():
-                return
-            
+                # Process Qt events in each iteration
+                # QApplication.processEvents()
+                clock.tick()
+                # if args.sync:
+                #     world.world.tick()
+                # else:
+                #     world.world.wait_for_tick()
+                if controller.parse_events():
+                    return
+                
 
-            world.tick(clock)
-            world.render(display)
-            pygame.display.flip()
+                world.tick(clock)
+                world.render(display)
+                pygame.display.flip()
 
-            if agent.done():
-                if args.loop:
-                    agent.set_destination(random.choice(spawn_points).location)
-                    world.hud.notification("Target reached", seconds=4.0)
-                    print("The target has been reached, searching for another target")
-                else:
-                    print("The target has been reached, stopping the simulation")
+                if agent.done():
+                    if args.loop:
+                        agent.set_destination(random.choice(spawn_points).location)
+                        world.hud.notification("Target reached", seconds=4.0)
+                        print("The target has been reached, searching for another target")
+                    else:
+                        print("The target has been reached, stopping the simulation")
+                        break
+
+                control = agent.run_step()
+                control.manual_gear_shift = False
+                world.player.apply_control(control)
+                #test.window.update_visualization()
+                        # Update visualization
+                window.update_visualization()
+                
+                # Process Qt events without blocking
+                QApplication.processEvents()
+
+                if subscriber.acknowledge_message():
+                    # Acknowledge the message to the subscriber
+                    print("Message acknowledged")
+                
+                # [Exit conditions]
+                if controller.parse_events():
                     break
+            else:
+                time.sleep(0.1)
+                # Cleanup
+            # Close the subscriber connection
+            # subscriber.close()
+            # print("Subscriber closed")
+            app.quit()
 
-            control = agent.run_step()
-            control.manual_gear_shift = False
-            world.player.apply_control(control)
-            #test.window.update_visualization()
-                    # Update visualization
-            window.update_visualization()
-            
-            # Process Qt events without blocking
-            QApplication.processEvents()
-            
-            # [Exit conditions]
-            if controller.parse_events():
-                break
-            # Cleanup
-        app.quit()
 
     finally:
 
-        if world is not None:
-            settings = world.world.get_settings()
-            settings.synchronous_mode = False
-            settings.fixed_delta_seconds = None
-            world.world.apply_settings(settings)
-            traffic_manager.set_synchronous_mode(True)
+        # if world is not None:
+        #     settings = world.world.get_settings()
+        #     settings.synchronous_mode = False
+        #     settings.fixed_delta_seconds = None
+        #     world.world.apply_settings(settings)
+        #     traffic_manager.set_synchronous_mode(True)
 
-            world.destroy()
-
+        #     world.destroy()
+        subscriber.close()
+        if world is not None and world.player is not None:
+            world.player.destroy()
         pygame.quit()
 
 
@@ -887,7 +903,8 @@ def main():
     argparser.add_argument(
         '--filter',
         metavar='PATTERN',
-        default='vehicle.*',
+        #default='vehicle.*',
+        default='vehicle.mini.cooper_s',
         help='Actor filter (default: "vehicle.*")')
     argparser.add_argument(
         '--generation',
