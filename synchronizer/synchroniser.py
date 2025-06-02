@@ -13,7 +13,7 @@ class Master:
     no_of_subscribers = 0  # Static variable to keep track of subscribers
     pending_disconnects = 0  # Track pending disconnects to adjust after acknowledgment
 
-    def __init__(self, pub_port=5555, sync_port=5556):
+    def __init__(self, pub_port=5555, sync_port=5556, hb_port=5557):
         self.context = zmq.Context()
         
         # Publisher socket
@@ -28,33 +28,57 @@ class Master:
         # Poller for subscription events
         self.poller = zmq.Poller()
         self.poller.register(self.pub_socket, zmq.POLLIN)
+
+        # Separate heartbeat socket
+        self.hb_socket = self.context.socket(zmq.ROUTER)
+        self.hb_socket.bind(f"tcp://*:{hb_port}")
+
+        # Initialize active subscribers dictionary for heartbeat tracking
+        self.active_subscribers = {}
+
         
         # Start background thread for polling subscription events
         self.polling_thread = threading.Thread(target=self.poll_subscriptions, daemon=True)
         self.polling_thread.start()
         print("Background polling thread started for subscriber tracking.")
+        self.last_heartbeat = time.time()
+
 
     def poll_subscriptions(self):
-        """Background method to poll for subscription events."""
+        """Background method to track subscriber connections/disconnections."""
         while True:
-            events = dict(self.poller.poll(1000))
+
+            # Check heartbeat socket
+            try:
+                identity, hb = self.hb_socket.recv_multipart(zmq.NOBLOCK)
+                if hb == b"HB_ACK":
+                    # Update last heartbeat time for this identity
+                    self.active_subscribers[identity] = time.time()
+            except zmq.Again:
+                pass
+            events = dict(self.poller.poll(100))  # Reduced polling interval
             if self.pub_socket in events and events[self.pub_socket] == zmq.POLLIN:
                 message = self.pub_socket.recv_multipart()
-                if message:
-                    if message[0][0:1] == b'\x01':
-                        Master.no_of_subscribers += 1
-                        print(f"New subscriber connected. Total: {Master.no_of_subscribers}")
-                    elif message[0][0:1] == b'\x00':
-                        Master.pending_disconnects += 1
-                        print(f"Subscriber disconnect pending: {Master.pending_disconnects}")
-            time.sleep(0.1)
+                if message[0][0:1] == b'\x01':
+                    Master.no_of_subscribers += 1
+                    print(f"New subscriber. Total: {Master.no_of_subscribers}")
+                elif message[0][0:1] == b'\x00':
+                    Master.no_of_subscribers = max(0, Master.no_of_subscribers - 1)
+                    print(f"Subscriber disconnected. Total: {Master.no_of_subscribers}")
+            time.sleep(0.01)  # Reduced sleep for faster response
 
     def broadcast_tick(self):
         try:
+            # # Send heartbeat every 2 seconds
+            # if time.time() - self.last_heartbeat > 2:
+            #     self.pub_socket.send_string("HB")
+            #     self.last_heartbeat = time.time()
+                
+            # Original tick broadcast
             self.pub_socket.send_string("TICK")
             print("Tick broadcasted")
             
-            if self.no_of_subscribers > 0:
+            if Master.no_of_subscribers > 0:
                 self.verify_acknowledgment()
             return True
         except Exception as e:
@@ -63,24 +87,25 @@ class Master:
     
     def verify_acknowledgment(self):
         self.waiting_for_ack = Master.no_of_subscribers
-        timeout = 10.0  # Increased timeout for slow subscribers
+        timeout = 10.0
         start_time = time.time()
         poller = zmq.Poller()
         poller.register(self.sync_socket, zmq.POLLIN)
         
-        print(f"Waiting for {self.waiting_for_ack} acknowledgments...")
+        print(f"Waiting for {self.waiting_for_ack} acks...")
         while self.waiting_for_ack > 0 and (time.time() - start_time) < timeout:
-            events = dict(poller.poll(500))  # Check every 500ms
-            if self.sync_socket in events:
-                try:
-                    ack = self.sync_socket.recv_string()
-                    self.sync_socket.send_string("ACK_RECEIVED")
-                    self.waiting_for_ack -= 1
-                    print(f"Acknowledgment received. Remaining: {self.waiting_for_ack}")
-                except zmq.ZMQError as e:
-                    print(f"Error processing acknowledgment: {e}")
-                    break
-            time.sleep(0.01)  # Prevent CPU overuse
+            try:
+                events = dict(poller.poll(500))  # 500ms timeout per poll
+                if self.sync_socket in events:
+                    msg = self.sync_socket.recv()
+                    if msg == b"ACK":
+                        print("Valid ACK received")
+                        self.sync_socket.send(b"ACK_RECEIVED")
+                        self.waiting_for_ack -= 1
+            except zmq.ZMQError as e:
+                if e.errno != zmq.EAGAIN:
+                    print(f"ZMQ error: {e}")
+                time.sleep(0.01)
         
         # Post-acknowledgment handling
         Master.no_of_subscribers = max(0, Master.no_of_subscribers - Master.pending_disconnects)
@@ -149,7 +174,7 @@ class Master:
 
 
 class Subscriber:
-    def __init__(self, sub_port=5555, sync_port=5556):
+    def __init__(self, sub_port=5555, sync_port=5556, hb_port=5557):
         self.context = zmq.Context()
         self.sub_socket = self.context.socket(zmq.SUB)
         self.sub_socket.connect(f"tcp://127.0.0.1:{sub_port}")
@@ -161,19 +186,39 @@ class Subscriber:
         self.max_messages = 10
         self.message_count = 0
 
+        # Separate heartbeat socket
+        self.hb_socket = self.context.socket(zmq.DEALER)
+        self.hb_socket.connect(f"tcp://localhost:{hb_port}")
+
     def receive_messages(self):
-        print("Starting to receive messages...")
-        while self.running and self.message_count < self.max_messages:
+        last_hb = time.time()
+        hb_interval = 2  # Expected heartbeat interval
+        while self.running:
+                    # Send heartbeats via dedicated socket
+            if time.time() - last_hb > 2:
+                self.hb_socket.send(b"HB_ACK")
+                last_hb = time.time()
             try:
-                message = self.sub_socket.recv_string(flags=zmq.NOBLOCK)
-                if message == "TICK":
-                    print(f"Received message: {message}")
-                    self.acknowledge_message()
-                    self.message_count += 1  # Increment counter
-            except zmq.Again:
-                time.sleep(0.001)
+                # Use poll for combined message handling
+                if self.sub_socket.poll(100, zmq.POLLIN):
+                    message = self.sub_socket.recv_string()
+                    if message == "HB":
+                        self.sync_socket.send_string("HB_ACK")
+                        last_hb = time.time()
+                    elif message == "TICK":
+                        print(f"Received message: {message}")
+                        self.acknowledge_message()
+                        self.message_count += 1  # Increment counter
+                                # Detect heartbeat timeouts
+                        
+                # Graceful timeout handling
+                if time.time() - last_hb > hb_interval * 3:
+                    print("Master connection unstable...")
+                    self.reset_connection()
+                    last_hb = time.time()  # Prevent immediate retrigger
+                    
             except Exception as e:
-                print(f"Error in receive_messages: {e}")
+                print(f"Critical error: {e}")
                 self.running = False
 
     def set_max_messages(self, count):
@@ -184,39 +229,46 @@ class Subscriber:
 
     def acknowledge_message(self):
         print("Acknowledging message...")
-        max_retries = 5
+        max_retries = 3
+        backoff = 0.1
+        
         for attempt in range(max_retries):
             try:
-                self.sync_socket.send_string("ACK")
-                if self.sync_socket.poll(1000, zmq.POLLIN):  # Wait up to 1 second per retry
-                    reply = self.sync_socket.recv_string()
-                    print(f"Received reply from server: {reply}")
-                    return
-                else:
-                    print(f"No reply from server (attempt {attempt+1}/{max_retries}). Retrying...")
+                self.sync_socket.send(b"ACK")
+                if self.sync_socket.poll(1000):  # Wait for response
+                    reply = self.sync_socket.recv()
+                    print(f"Received reply: {reply.decode()}")
+                    return True
             except zmq.ZMQError as e:
-                if e.errno == zmq.EAGAIN:
-                    print(f"Timeout on attempt {attempt+1}/{max_retries}")
-                else:
-                    print(f"Error during acknowledgment: {e}")
-                    self.reset_sync_socket()
-                    break
-        print("Failed to acknowledge after retries. Resetting socket...")
+                print(f"Attempt {attempt+1} failed: {e}")
+                time.sleep(backoff)
+                backoff *= 2
+        
+        print("All retries failed. Attempting to reset sync socket...")
         self.reset_sync_socket()
+        return False
 
     def reset_sync_socket(self):
-        """Reset socket with proper cleanup and connection delay"""
         try:
+            # Full cleanup sequence
             self.sync_socket.setsockopt(zmq.LINGER, 0)
             self.sync_socket.disconnect(f"tcp://127.0.0.1:5556")
             self.sync_socket.close()
-            time.sleep(0.5)  # Allow time for socket cleanup
+            time.sleep(0.5)  # Allow OS to release resources
+            
+            # Recreate context if closed
+            if self.context.closed:
+                self.context = zmq.Context()
+                
             self.sync_socket = self.context.socket(zmq.REQ)
             self.sync_socket.setsockopt(zmq.RCVTIMEO, 2000)
             self.sync_socket.connect(f"tcp://127.0.0.1:5556")
             print("Sync socket reset successfully.")
         except Exception as e:
-            print(f"Error resetting sync socket: {e}")
+            print(f"Error resetting socket: {e}")
+            # Emergency context recreation
+            self.context = zmq.Context()
+            self.sync_socket = self.context.socket(zmq.REQ)
 
 
     # def send_termination_signal(self):
@@ -240,6 +292,8 @@ class Subscriber:
     #         print(f"Subscriber disconnected. Remaining subscribers: {Master.no_of_subscribers}")
     #     except Exception as e:
     #         print(f"Error during close: {e}")
+
+
 # Example usage:
 if __name__ == "__main__":
     master = Master()
