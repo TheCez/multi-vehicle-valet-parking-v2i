@@ -15,33 +15,29 @@ class Master:
 
     def __init__(self, pub_port=5555, sync_port=5556, hb_port=5557):
         self.context = zmq.Context()
+        
+        # Publisher socket
         self.pub_socket = self.context.socket(zmq.XPUB)
-        self.pub_socket.setsockopt(zmq.XPUB_VERBOSE, 1)
-        self.pub_socket.bind(f"tcp://127.0.0.1:{pub_port}")  # Use TCP instead of inproc  # Use inproc instead of TCP
+        self.pub_socket.setsockopt(zmq.XPUB_VERBOSE, 1)  # Enable verbose mode
+        self.pub_socket.bind(f"tcp://127.0.0.1:{pub_port}")
         
-        self.sync_socket = self.context.socket(zmq.ROUTER)
-        self.sync_socket.bind(f"tcp://127.0.0.1:{sync_port}")  # Use TCP instead of inproc
-        self.sync_socket.setsockopt(zmq.HEARTBEAT_IVL, 2000)
-        self.sync_socket.setsockopt(zmq.HEARTBEAT_TIMEOUT, 5000)
-        self.sync_socket.setsockopt(zmq.HEARTBEAT_TTL, 5000)
+        # Sync socket for acknowledgments
+        self.sync_socket = self.context.socket(zmq.REP)
+        self.sync_socket.bind(f"tcp://127.0.0.1:{sync_port}")
         
-        self.hb_socket = self.context.socket(zmq.ROUTER)
-        self.hb_socket.bind(f"tcp://127.0.0.1:{hb_port}")  # Use TCP instead of inproc  # Use inproc instead of TCP
-        self.hb_socket.setsockopt(zmq.HEARTBEAT_IVL, 2000)
-        self.hb_socket.setsockopt(zmq.HEARTBEAT_TIMEOUT, 5000)
-        self.hb_socket.setsockopt(zmq.HEARTBEAT_TTL, 5000)
-        
-        # Optimize socket options for low latency
-        self.pub_socket.setsockopt(zmq.SNDHWM, 100)
-        self.pub_socket.setsockopt(zmq.IMMEDIATE, 1)
-        self.sync_socket.setsockopt(zmq.SNDHWM, 100)
-        self.sync_socket.setsockopt(zmq.RCVHWM, 100)
-        self.hb_socket.setsockopt(zmq.SNDHWM, 100)
-        self.hb_socket.setsockopt(zmq.RCVHWM, 100)
-        
+        # Poller for subscription events
         self.poller = zmq.Poller()
         self.poller.register(self.pub_socket, zmq.POLLIN)
+
+        # Separate heartbeat socket
+        self.hb_socket = self.context.socket(zmq.ROUTER)
+        self.hb_socket.bind(f"tcp://*:{hb_port}")
+
+        # Initialize active subscribers dictionary for heartbeat tracking
         self.active_subscribers = {}
+
+        
+        # Start background thread for polling subscription events
         self.polling_thread = threading.Thread(target=self.poll_subscriptions, daemon=True)
         self.polling_thread.start()
         print("Background polling thread started for subscriber tracking.")
@@ -50,30 +46,29 @@ class Master:
 
     def poll_subscriptions(self):
         """Background method to track subscriber connections/disconnections."""
-        heartbeat_timeout = 10  # Increased from 6 to 8 seconds to avoid premature timeouts
+        heartbeat_timeout = 6  # Timeout in seconds
         while True:
             try:
-                msg_parts = self.hb_socket.recv_multipart(zmq.NOBLOCK)
-                if len(msg_parts) >= 2:
-                    identity = msg_parts[0]
-                    hb = msg_parts[1]
-                    if hb == b"HB_ACK":
-                        if identity not in self.active_subscribers and Master.no_of_subscribers > len(self.active_subscribers):
-                            print(f"New subscriber added via heartbeat. ID: {identity}, Total: {Master.no_of_subscribers}")
-                        self.active_subscribers[identity] = time.time()
-                        print(f"Heartbeat received from subscriber {identity}")
+                identity, hb = self.hb_socket.recv_multipart(zmq.NOBLOCK)
+                if hb == b"HB_ACK":
+                    self.active_subscribers[identity] = time.time()
+                    print(f"Heartbeat received from subscriber {identity}")
             except zmq.Again:
                 pass
 
-            events = dict(self.poller.poll(20))  # Reduced from 100ms to 50ms for faster response
+            events = dict(self.poller.poll(100))
             if self.pub_socket in events and events[self.pub_socket] == zmq.POLLIN:
                 message = self.pub_socket.recv_multipart()
                 if message[0][0:1] == b'\x01':
                     Master.no_of_subscribers += 1
-                    print(f"New subscriber detected. Total: {Master.no_of_subscribers}")
+                    subscriber_id = message[0][1:] if len(message[0]) > 1 else b"new_subscriber_" + str(time.time()).encode()
+                    if subscriber_id not in self.active_subscribers:
+                        self.active_subscribers[subscriber_id] = time.time()
+                    print(f"New subscriber. ID: {subscriber_id}, Total: {Master.no_of_subscribers}")
                 elif message[0][0:1] == b'\x00':
                     Master.pending_disconnects += 1
-                    print(f"Subscriber disconnected. Pending disconnects: {Master.pending_disconnects}")
+                    subscriber_id = message[0][1:] if len(message[0]) > 1 else b"unknown"
+                    print(f"Subscriber disconnected. ID: {subscriber_id}, Pending disconnects: {Master.pending_disconnects}")
 
             current_time = time.time()
             inactive_subscribers = [
@@ -85,8 +80,7 @@ class Master:
                 Master.pending_disconnects += 1
                 print(f"Subscriber {identity} timed out. Pending disconnects: {Master.pending_disconnects}")
 
-            time.sleep(0.002)  # Reduced from 0.01 to 0.005 for faster polling
-
+            time.sleep(0.01)
 
 
     def broadcast_tick(self):
@@ -109,36 +103,39 @@ class Master:
     
     def verify_acknowledgment(self):
         self.waiting_for_ack = Master.no_of_subscribers
-        timeout = 1.0  # Reduced from 10.0 to 5.0 seconds
+        timeout = 10.0
         start_time = time.time()
         poller = zmq.Poller()
         poller.register(self.sync_socket, zmq.POLLIN)
-        received_acks = set()
         
         print(f"Waiting for {self.waiting_for_ack} acks...")
-        while (self.waiting_for_ack > 0 or len(self.active_subscribers) > 0) and (time.time() - start_time) < timeout:
+        while self.waiting_for_ack > 0 and (time.time() - start_time) < timeout:
             try:
-                events = dict(poller.poll(50))  # Reduced from 1000ms to 200ms per poll
+                events = dict(poller.poll(500))
                 if self.sync_socket in events:
-                    msg_parts = self.sync_socket.recv_multipart()
-                    if len(msg_parts) >= 2:
-                        identity = msg_parts[0]
-                        msg = msg_parts[1]
-                        if msg == b"ACK" and identity not in received_acks:
-                            print(f"Valid ACK received from {identity}")
-                            self.sync_socket.send_multipart([identity, b"ACK_RECEIVED"])
-                            received_acks.add(identity)
-                            if self.waiting_for_ack > 0:
-                                self.waiting_for_ack -= 1
+                    msg = self.sync_socket.recv()
+                    if msg == b"ACK":
+                        print("Valid ACK received")
+                        self.sync_socket.send(b"ACK_RECEIVED")
+                        self.waiting_for_ack -= 1
+                    else:
+                        self.sync_socket.send(b"ERROR")  # Respond to invalid messages to maintain state
+                else:
+                    # If no activity for a while, check if subscribers are still active
+                    if (time.time() - start_time) > (timeout / 2):
+                        active_count = len(self.active_subscribers)
+                        if active_count < self.waiting_for_ack:
+                            print(f"Reducing expected acks to match active subscribers: {active_count}")
+                            self.waiting_for_ack = active_count
             except zmq.ZMQError as e:
                 if e.errno != zmq.EAGAIN:
                     print(f"ZMQ error: {e}")
-                time.sleep(0.001)  # Reduced from 0.01 to 0.002 for faster response
+                time.sleep(0.01)
         
         Master.no_of_subscribers = max(0, Master.no_of_subscribers - Master.pending_disconnects)
         Master.pending_disconnects = 0
         active_count = len(self.active_subscribers)
-        if active_count != Master.no_of_subscribers:
+        if active_count < Master.no_of_subscribers:
             print(f"Adjusting subscriber count to match active subscribers: {active_count}")
             Master.no_of_subscribers = active_count
         print(f"Adjusted subscribers: {Master.no_of_subscribers}")
@@ -208,54 +205,46 @@ class Subscriber:
     def __init__(self, sub_port=5555, sync_port=5556, hb_port=5557):
         self.context = zmq.Context()
         self.sub_socket = self.context.socket(zmq.SUB)
-        self.sub_socket.setsockopt(zmq.SUBSCRIBE, b"TICK")
-        self.sub_socket.connect(f"tcp://127.0.0.1:{sub_port}")  # Use TCP instead of inproc  # Use inproc instead of TCP
-        
-        self.sync_socket = self.context.socket(zmq.DEALER)
-        self.identity = str(uuid.uuid4()).encode()
-        self.sync_socket.setsockopt(zmq.IDENTITY, self.identity)
-        self.sync_socket.connect(f"tcp://127.0.0.1:{sync_port}")  # Use TCP instead of inproc # Use inproc instead of TCP
-        self.sync_socket.setsockopt(zmq.HEARTBEAT_IVL, 2000)
-        self.sync_socket.setsockopt(zmq.HEARTBEAT_TIMEOUT, 5000)
-        self.sync_socket.setsockopt(zmq.HEARTBEAT_TTL, 5000)
-        
-        self.hb_socket = self.context.socket(zmq.DEALER)
-        self.hb_socket.setsockopt(zmq.IDENTITY, self.identity)
-        self.hb_socket.connect(f"tcp://127.0.0.1:{hb_port}")  # Use inproc instead of TCP
-        self.hb_socket.setsockopt(zmq.HEARTBEAT_IVL, 2000)
-        self.hb_socket.setsockopt(zmq.HEARTBEAT_TIMEOUT, 5000)
-        self.hb_socket.setsockopt(zmq.HEARTBEAT_TTL, 5000)
-        
-        # Optimize socket options for low latency
-        self.sub_socket.setsockopt(zmq.RCVHWM, 100)
-        self.sync_socket.setsockopt(zmq.SNDHWM, 100)
-        self.sync_socket.setsockopt(zmq.RCVHWM, 100)
-        self.hb_socket.setsockopt(zmq.SNDHWM, 100)
-        
+        self.sub_socket.connect(f"tcp://127.0.0.1:{sub_port}")
+        self.sub_socket.setsockopt_string(zmq.SUBSCRIBE, "")
+        self.sync_socket = self.context.socket(zmq.REQ)
+        self.sync_socket.connect(f"tcp://127.0.0.1:{sync_port}")
+        self.sync_socket.setsockopt(zmq.RCVTIMEO, 2000)  # 2-second receive timeout
         self.running = True
-        self.heartbeat_thread = threading.Thread(target=self.send_heartbeat, daemon=True)
-        self.heartbeat_thread.start()
+        self.max_messages = 10
+        self.message_count = 0
 
-    def send_heartbeat(self):
-        """Send periodic heartbeat messages to the Master to indicate liveness."""
-        heartbeat_interval = 6  # Send heartbeat every 2 seconds
-        while self.running:
-            try:
-                self.hb_socket.send(b"HB_ACK")
-                # No need to wait for a reply in DEALER pattern
-                time.sleep(heartbeat_interval)
-            except zmq.ZMQError as e:
-                print(f"Heartbeat send failed: {e}")
-                time.sleep(0.3)  # Backoff on error
+        # Separate heartbeat socket
+        self.hb_socket = self.context.socket(zmq.DEALER)
+        self.hb_socket.connect(f"tcp://localhost:{hb_port}")
 
     def receive_messages(self):
+        last_hb = time.time()
+        hb_interval = 2  # Expected heartbeat interval
         while self.running:
+                    # Send heartbeats via dedicated socket
+            if time.time() - last_hb > 2:
+                self.hb_socket.send(b"HB_ACK")
+                last_hb = time.time()
             try:
+                # Use poll for combined message handling
                 if self.sub_socket.poll(100, zmq.POLLIN):
                     message = self.sub_socket.recv_string()
-                    if message == "TICK":
+                    if message == "HB":
+                        self.sync_socket.send_string("HB_ACK")
+                        last_hb = time.time()
+                    elif message == "TICK":
                         print(f"Received message: {message}")
                         self.acknowledge_message()
+                        self.message_count += 1  # Increment counter
+                                # Detect heartbeat timeouts
+                        
+                # Graceful timeout handling
+                if time.time() - last_hb > hb_interval * 3:
+                    print("Master connection unstable...")
+                    self.reset_connection()
+                    last_hb = time.time()  # Prevent immediate retrigger
+                    
             except Exception as e:
                 print(f"Critical error: {e}")
                 self.running = False
@@ -266,11 +255,10 @@ class Subscriber:
     def reset_counter(self):
         self.message_count = 0
 
-
     def acknowledge_message(self):
         print("Acknowledging message...")
-        max_retries = 3  # Reduced from 8 to 5 for quicker failure detection
-        request_timeout = 200  # Reduced from 3000ms to 1000ms per attempt
+        max_retries = 5  # Increased retries
+        request_timeout = 2000  # Increased to 2 seconds per attempt
         poller = zmq.Poller()
         poller.register(self.sync_socket, zmq.POLLIN)
         
@@ -286,11 +274,12 @@ class Subscriber:
                 else:
                     print(f"No response from Master, retrying... ({retries_left} retries left)")
                     retries_left -= 1
-                    if retries_left == 0:
+                    if retries_left > 0:
+                        time.sleep(0.5)  # Longer backoff before retry
+                    else:
                         print("All retries failed. Attempting to reset sync socket...")
                         self.reset_sync_socket()
                         return False
-                    time.sleep(0.05)  # Reduced from 1.0s to 0.2s for faster retries
             except zmq.ZMQError as e:
                 print(f"Attempt failed: {e}")
                 retries_left -= 1
@@ -298,23 +287,29 @@ class Subscriber:
                     print("All retries failed. Attempting to reset sync socket...")
                     self.reset_sync_socket()
                     return False
-                time.sleep(0.2)
+                time.sleep(0.5)
         
         return False
-
 
     def reset_sync_socket(self):
         try:
             self.sync_socket.setsockopt(zmq.LINGER, 0)
             self.sync_socket.disconnect(f"tcp://127.0.0.1:5556")
             self.sync_socket.close()
-            time.sleep(0.2)
-            self.sync_socket = self.context.socket(zmq.DEALER)
-            self.sync_socket.setsockopt(zmq.IDENTITY, self.identity)
+            time.sleep(0.2)  # Reduced wait time for quicker recovery
+            self.sync_socket = self.context.socket(zmq.REQ)
+            self.sync_socket.setsockopt(zmq.RCVTIMEO, 2000)
             self.sync_socket.connect(f"tcp://127.0.0.1:5556")
             print("Sync socket reset successfully.")
         except Exception as e:
             print(f"Error resetting socket: {e}")
+            # Only recreate context as a last resort
+            try:
+                self.sync_socket = self.context.socket(zmq.REQ)
+                self.sync_socket.setsockopt(zmq.RCVTIMEO, 2000)
+                self.sync_socket.connect(f"tcp://127.0.0.1:5556")
+            except Exception as e2:
+                print(f"Critical error resetting socket: {e2}")
 
     def close(self):
         self.running = False
