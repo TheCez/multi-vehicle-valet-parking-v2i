@@ -1,20 +1,26 @@
 from synchroniser import Subscriber
 import time
 
+# Create a Subscriber instance
+subscriber = Subscriber()
 
-subscriber= Subscriber()
-#subscriber.set_max_messages(10)  # Receive 10 ticks
+# Set the number of messages to process
+no_of_messages = 10
+messages_processed = 0
 
-#for i in range(10):
-subscriber.receive_messages()
-    #time.sleep(5)
-    #if subscriber.acknowledge_message():
-      #  print("Acknowledged message")
-    # if subscriber.message_count >= subscriber.max_messages:
-    #     print("Reached message limit")
-    #     break
-    #time.sleep(0.1)  # Prevent busy wait
+# Loop to control the number of messages
+while messages_processed < no_of_messages and subscriber.running:
+    if subscriber.receive_messages():
+        # Simulate a random task with a 5-second delay
+        #time.sleep(5)
+        # Acknowledge the message
+        if subscriber.acknowledge_message():
+            messages_processed += 1
+            print(f"Processed message {messages_processed}/{no_of_messages}")
+    # Optional: Add a small delay to prevent tight CPU loop if no message is received
+    else:
+        time.sleep(0.1)
 
-subscriber.close()  # Close the subscriber connection
+# Close the subscriber connection
+subscriber.close()
 print("Subscriber closed")
-

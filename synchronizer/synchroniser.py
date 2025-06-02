@@ -189,8 +189,6 @@ class Subscriber:
         self.sync_socket.connect(f"tcp://127.0.0.1:{sync_port}")
         self.sync_socket.setsockopt(zmq.RCVTIMEO, 2000)  # 2-second receive timeout
         self.running = True
-        self.max_messages = 10
-        self.message_count = 0
 
         # Separate heartbeat socket
         self.hb_socket = self.context.socket(zmq.DEALER)
@@ -198,7 +196,6 @@ class Subscriber:
 
         self.heartbeat_thread = threading.Thread(target=self.send_heartbeat, daemon=True)
         self.heartbeat_thread.start()
-
 
     def send_heartbeat(self):
         """Send periodic heartbeat messages to the Master to indicate liveness."""
@@ -212,40 +209,24 @@ class Subscriber:
                 time.sleep(0.3)
 
     def receive_messages(self):
-        # last_hb = time.time()
-        # hb_interval = 2  # Expected heartbeat interval
-        while self.running:
-                    # Send heartbeats via dedicated socket
-            # if time.time() - last_hb > 2:
-            #     self.hb_socket.send(b"HB_ACK")
-            #     last_hb = time.time()
-            try:
-                # Use poll for combined message handling
-                if self.sub_socket.poll(100, zmq.POLLIN):
-                    message = self.sub_socket.recv_string()
-                    if message == "TICK":
-                        print(f"Received message: {message}")
-                        self.acknowledge_message()
-                        self.message_count += 1  # Increment counter
-                                # Detect heartbeat timeouts
-                        
-                # # Graceful timeout handling
-                # if time.time() - last_hb > hb_interval * 3:
-                #     print("Master connection unstable...")
-                #     self.reset_connection()
-                #     last_hb = time.time()  # Prevent immediate retrigger
-                    
-            except Exception as e:
-                print(f"Critical error: {e}")
-                self.running = False
+        """Check for a single 'TICK' message and return True if received."""
+        if not self.running:
+            return False
 
-    def set_max_messages(self, count):
-        self.max_messages = count
-        
-    def reset_counter(self):
-        self.message_count = 0
+        try:
+            # Use poll for message handling with a short timeout
+            if self.sub_socket.poll(100, zmq.POLLIN):
+                message = self.sub_socket.recv_string()
+                if message == "TICK":
+                    print(f"Received message: {message}")
+                    return True
+        except Exception as e:
+            print(f"Critical error: {e}")
+            self.running = False
+        return False
 
     def acknowledge_message(self):
+        """Acknowledge a received message with retry logic."""
         print("Acknowledging message...")
         max_retries = 3
         backoff = 0.1
@@ -267,14 +248,13 @@ class Subscriber:
         return False
 
     def reset_sync_socket(self):
+        """Reset the sync socket in case of failure."""
         try:
-            # Full cleanup sequence
             self.sync_socket.setsockopt(zmq.LINGER, 0)
             self.sync_socket.disconnect(f"tcp://127.0.0.1:5556")
             self.sync_socket.close()
             time.sleep(0.5)  # Allow OS to release resources
             
-            # Recreate context if closed
             if self.context.closed:
                 self.context = zmq.Context()
                 
@@ -284,11 +264,11 @@ class Subscriber:
             print("Sync socket reset successfully.")
         except Exception as e:
             print(f"Error resetting socket: {e}")
-            # Emergency context recreation
             self.context = zmq.Context()
             self.sync_socket = self.context.socket(zmq.REQ)
 
     def close(self):
+        """Close all sockets and terminate the context."""
         self.running = False
         try:
             self.sub_socket.setsockopt(zmq.LINGER, 0)
@@ -301,7 +281,6 @@ class Subscriber:
             print("Subscriber sockets closed.")
         except Exception as e:
             print(f"Error during subscriber cleanup: {e}")
-
 
     # def send_termination_signal(self):
     #     try:
