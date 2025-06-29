@@ -12,6 +12,7 @@ from commonroad_reach.utility.visualization import generate_default_drawing_para
 import seaborn as sns
 import matplotlib.pyplot as plt
 from PyQt6.QtCore import QObject, pyqtSignal, QMutex, QMutexLocker
+from commonroad_reach.utility.coordinate_system import convert_to_cartesian_polygons
 
 
 class CommonRoadVisualizer(QMainWindow):
@@ -91,7 +92,7 @@ class CommonRoadVisualizer(QMainWindow):
                 initial_state = InitialState(
                     position=position,
                     orientation=orientation,
-                    velocity=0,
+                    velocity=5,
                     time_step=0,
                     yaw_rate=0.0,
                     slip_angle=0.0,
@@ -126,13 +127,14 @@ class CommonRoadVisualizer(QMainWindow):
                 
                 # Draw reachable sets if available
                 if self.reach_interface:
-                    self.draw_reachable_area(current_step)
+                    polygons = self.draw_reachable_area(current_step)
             
             except Exception as e:
                 print(f"Error in update_visualization: {e}")
             
             # Render the updated visualization
             self.canvas.render()
+            return polygons
         except Exception as e:
             print(f"Error in update_visualization: {e}")
 
@@ -148,6 +150,16 @@ class CommonRoadVisualizer(QMainWindow):
         # Get drivable area
         list_nodes = self.reach_interface.reachable_set_at_step(current_step)
         draw_reachable_sets(list_nodes, config, self.canvas.mp_renderer, draw_params)
+        # Convert reachable set rectangles to polygons and return them
+
+        clcs = config.planning.CLCS
+        polygons = []
+        for rectangle_cvln in list_nodes:
+            cartesian_polygons = convert_to_cartesian_polygons(
+                rectangle_cvln, clcs, split_wrt_angle=False
+            )
+            polygons.extend(cartesian_polygons)
+        return polygons
         #list_nodes = self.reach_interface.drivable_area_at_step(current_step)
         #draw_drivable_area(list_nodes, config, self.canvas.mp_renderer, draw_params)
         #self.canvas.mp_renderer.ax.autoscale(enable=True)

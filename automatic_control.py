@@ -73,6 +73,7 @@ from PyQt6.QtCore import QTimer
 from VisualizationThread import VisualizationThread
 from synchroniser.synchroniser import Subscriber
 import time
+from occupation_grid.occupation_grid_with_grid_generator.occupation_grid import OccupationGrid
 # ==============================================================================
 # -- Global functions ----------------------------------------------------------
 # ==============================================================================
@@ -180,7 +181,7 @@ class World(object):
                 sys.exit(1)
             spawn_points = self.map.get_spawn_points()
             spawn_point = random.choice(spawn_points) if spawn_points else carla.Transform()
-            spawn_point = spawn_points[14]
+            spawn_point = spawn_points[5]
             self.player = self.world.try_spawn_actor(blueprint, spawn_point)
             self.modify_vehicle_physics(self.player)
 
@@ -728,6 +729,7 @@ def game_loop(args):
 
     pygame.init()
     pygame.font.init()
+
     world = None
 
     try:
@@ -739,6 +741,10 @@ def game_loop(args):
 
         traffic_manager = client.get_trafficmanager()
         sim_world = client.get_world()
+
+        occupationgrid = OccupationGrid(sim_world)
+
+        occupationgrid.start_visualization()
 
         if args.sync:
             settings = sim_world.get_settings()
@@ -770,7 +776,7 @@ def game_loop(args):
         # Set the agent destination
         spawn_points = world.map.get_spawn_points()
         destination = random.choice(spawn_points).location
-        destination = spawn_points[7].location
+        destination = spawn_points[10].location
         agent.set_destination(destination)
         clock = pygame.time.Clock()
 
@@ -828,7 +834,8 @@ def game_loop(args):
                 world.player.apply_control(control)
                 #test.window.update_visualization()
                         # Update visualization
-                window.update_visualization()
+                polygons = window.update_visualization()
+                occupationgrid.update_visualization(world.player, 2, 200)
                 
                 # Process Qt events without blocking
                 QApplication.processEvents()
@@ -863,6 +870,7 @@ def game_loop(args):
         if world is not None and world.player is not None:
             world.player.destroy()
         pygame.quit()
+        occupationgrid.stop_visualization()
 
 
 # ==============================================================================
