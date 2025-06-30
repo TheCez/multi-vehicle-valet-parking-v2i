@@ -67,6 +67,50 @@ class OccupationGrid:
             )
             world_corners.append(world_corner)
         return world_corners
+    
+    def draw_polygons_on_grid(self,
+                            target_grid,
+                            polygons,
+                            color=(0, 255, 0),
+                            thickness=2):
+        """
+        Draws CommonRoad polygons onto the full grid using their absolute world coordinates.
+        This logic now perfectly mirrors the mark_bounding_box function.
+
+        Args:
+            target_grid: The full, color grid image to draw on.
+            polygons: A list of polygons with vertices in CommonRoad coordinates.
+            color: The color for the polygon lines.
+            thickness: The thickness of the polygon lines.
+        """
+        if not polygons:
+            return target_grid
+
+        for polygon in polygons:
+            pts_on_grid = []
+            for cr_x, cr_y in polygon:
+                # 1. Convert CommonRoad vertex to absolute CARLA world coordinates.
+                # This is the only transformation needed for the vertices themselves.
+                world_x = cr_x
+                world_y = -cr_y
+
+                # 2. Map the absolute world coordinates to grid pixel coordinates.
+                # This logic is now identical to the mapping in mark_bounding_box.
+                grid_col = int(self.center + (world_x / self.cell_size))
+                grid_row = int(self.center + (world_y / self.cell_size))
+
+                pts_on_grid.append([grid_col, grid_row])
+
+            # 3. Draw the complete polygon onto the target grid.
+            if len(pts_on_grid) >= 3:
+                cv2.polylines(target_grid,
+                            [np.array(pts_on_grid, dtype=np.int32)],
+                            isClosed=True,
+                            color=color,
+                            thickness=thickness)
+
+        return target_grid
+
 
     def start_visualization(self, window_name='Animated Obstacle Grid'):
         """
@@ -79,7 +123,9 @@ class OccupationGrid:
         cv2.resizeWindow(self.window_name, 800, 800)
         self.visualization_running = True
 
-    def update_visualization(self, ego_vehicle, zoom_factor=2, context_size=200):
+    
+
+    def update_visualization(self, ego_vehicle, zoom_factor=2, context_size=200, polygons=None):
         """
         Updates the visualization with the current ego vehicle position.
         Shows a zoomed-in context around the ego vehicle if present.
@@ -91,6 +137,13 @@ class OccupationGrid:
         current_grid = self.mark_ego_vehicle(self.grid, ego_vehicle)
         # Convert grid to color image
         colored_grid = self.color_map[current_grid]
+        # 3. Draw polygons directly onto the full colored grid
+        if polygons is not None:
+            # Note: We no longer pass ego_vehicle to this function
+            colored_grid = self.draw_polygons_on_grid(
+                colored_grid, polygons, color=(0, 0, 0), thickness=1 # Using black for road lines
+            )
+
         # Find ego vehicle position
         ego_positions = np.where(current_grid == 2)
         if len(ego_positions[0]) > 0:
@@ -119,6 +172,14 @@ class OccupationGrid:
                 start_x = 0
             # Extract and zoom context window
             context_grid = colored_grid[start_y:end_y, start_x:end_x]
+            # Draw polygons if provided
+            print("Polygons:", polygons)
+        # # Draw polygons if provided
+        #     if polygons is not None:
+        #         ego_transform = ego_vehicle.get_transform()
+        #         context_grid = self.draw_polygons_on_grid(
+        #             context_grid, polygons, ego_vehicle, start_x, start_y
+        #         )
             zoomed_grid = cv2.resize(context_grid, None, fx=zoom_factor, fy=zoom_factor, interpolation=cv2.INTER_NEAREST)
             cv2.imshow(self.window_name, zoomed_grid)
         else:
