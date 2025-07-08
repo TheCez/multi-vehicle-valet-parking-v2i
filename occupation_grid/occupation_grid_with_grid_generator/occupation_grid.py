@@ -123,6 +123,26 @@ class OccupationGrid:
         cv2.resizeWindow(self.window_name, 800, 800)
         self.visualization_running = True
 
+
+    def generate_occupation_grid(self, ego_vehicle, zoom_factor=2, context_size=200, polygons=None):
+        """
+        Generates the occupation grid and starts the visualization.
+        """
+        # Ensure visualization is initialized
+        if not hasattr(self, 'window_name'):
+            self.start_visualization()
+        # Mark ego vehicle on the grid
+        current_grid = self.mark_ego_vehicle(self.grid, ego_vehicle)
+        # Convert grid to color image
+        colored_grid = self.color_map[current_grid]
+        # Draw polygons directly onto the full colored grid
+        if polygons is not None:
+            colored_grid = self.draw_polygons_on_grid(
+                colored_grid, polygons, color=(0, 0, 0), thickness=1 # Using black for road lines
+            )
+        
+
+
     
 
     def update_visualization(self, ego_vehicle, zoom_factor=2, context_size=200, polygons=None):
