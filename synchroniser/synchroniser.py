@@ -5,6 +5,7 @@ import uuid
 import carla
 import threading
 import numpy as np
+from occupation_grid.occupation_grid_with_grid_generator.occupation_grid_visualizer import OccupationGridVisualizer
 
 
 
@@ -15,6 +16,10 @@ class Master:
     pending_disconnects = 0  # Track pending disconnects to adjust after acknowledgment
 
     def __init__(self, pub_port=5555, sync_port=5556, hb_port=5557):
+        client = carla.Client('localhost', 2000)
+        client.set_timeout(10.0)
+        world = client.get_world()
+        self.oc = OccupationGridVisualizer(world=world)
         self.context = zmq.Context()
         
         # Publisher socket
@@ -128,15 +133,15 @@ class Master:
     #                     #     occupancy_grid_2 = np.array(occupancy_grid_2)
 
     #                     # occupancy_grid_2[occupancy_grid_2 == 3] = 4
-    #                     # # Merge the two occupancy grids, storing conflicts as lists
-    #                     # merged_grid = np.empty_like(occupancy_grid_2, dtype=object)
-    #                     # for idx, (val1, val2) in np.ndenumerate(zip(occupancy_grid_1.flat, occupancy_grid_2.flat)):
-    #                     #     if val1 == val2:
-    #                     #         merged_grid[idx] = val1
-    #                     #     else:
-    #                     #         merged_grid[idx] = [val1, val2]
-    #                     # # Save the merged grid to a file
-    #                     # np.save("merged_grid.npy", merged_grid)
+                        # # Merge the two occupancy grids, storing conflicts as lists
+                        # merged_grid = np.empty_like(occupancy_grid_2, dtype=object)
+                        # for idx, (val1, val2) in np.ndenumerate(zip(occupancy_grid_1.flat, occupancy_grid_2.flat)):
+                        #     if val1 == val2:
+                        #         merged_grid[idx] = val1
+                        #     else:
+                        #         merged_grid[idx] = [val1, val2]
+                        # # Save the merged grid to a file
+                        # np.save("merged_grid.npy", merged_grid)
     #                     # #self.solve_problem("file1.pkl", "file2.pkl")
     #                     self.sync_socket.send(b"CONFLICT_SOLVED")
     #                 else:
@@ -160,7 +165,7 @@ class Master:
         poller = zmq.Poller()
         poller.register(self.sync_socket, zmq.POLLIN)
         # Create a list to hold occupancy grids, one for each subscriber
-        occupancy_grids = [None] * Master.no_of_subscribers
+        occupancy_grids = {}
 
         print(f"Waiting for {self.waiting_for_ack} acks or conflicts...")
 
@@ -182,15 +187,48 @@ class Master:
                         self.sync_socket.send(b"SEND_GRID")  # Respond immediately
 
                         # Now receive the grid from this subscriber
-                        grid = self.sync_socket.recv_pyobj()
+                        subscriber_id, grid = self.sync_socket.recv_pyobj()
+
+                        occupancy_grids[subscriber_id] = grid  # Store the grid with subscriber ID as key
                         # Find the first available slot (None) and store the grid there
-                        for idx in range(len(occupancy_grids)):
-                            if occupancy_grids[idx] is None:
-                                occupancy_grids[idx] = grid
-                                break
-                        print(f"Received occupancy grid with shape {grid.shape}")
-                        np.save(f"occupancy_grid_{len(occupancy_grids)}.npy", grid)
+                        # for idx in range(len(occupancy_grids)):
+                        #     if occupancy_grids[idx] is None:
+                        #         occupancy_grids[idx] = grid
+                        #         break
+                        print(f"Received occupancy grid from {subscriber_id} with shape {grid.shape}")
+                        np.save(f"output_occupancy_grids/occupancy_grid_{subscriber_id}.npy", grid)
                         self.sync_socket.send(b"GRID_RECEIVED")  # Acknowledge grid receipt
+                        print(f"Conflict Count is {self.conflict_counter}")
+
+                        if self.conflict_counter == 0:
+                            # Assign unique values for '3' in each grid (starting from 4 for the second grid)
+                            for idx, (subscriber_id, grid) in enumerate(occupancy_grids.items()):
+                                if idx == 0:
+                                    continue  # Skip the first grid
+                                new_value = 3 + idx  # 4 for second, 5 for third, etc.
+                                grid[grid == 3] = new_value
+                            
+                            # Merge all received occupancy grids with conflict handling
+                            first_grid = next(iter(occupancy_grids.values()))
+                            grid_shape = first_grid.shape
+                            merged_grid = np.empty(grid_shape, dtype=first_grid.dtype)
+
+                            # Copy the first grid as the base
+                            merged_grid[:] = first_grid
+
+                            # Merge the rest of the grids
+                            for _, grid in list(occupancy_grids.items())[1:]:
+                                for idx, value in np.ndenumerate(grid):
+                                    if merged_grid[idx] != value:
+                                        merged_grid[idx] = max(merged_grid[idx], value)
+                                    # else: values are the same, do nothing
+                            
+                            self.oc.update_visualization2(current_grid = merged_grid)
+
+                            #np.save("output_occupancy_grids/merged_grid.npy", merged_grid)
+                            print("Merged grid saved to output_occupancy_grids/merged_grid.npy")
+                            print("All conflicts resolved! Merging occupancy grids...")
+                    
 
             except zmq.ZMQError as e:
                 if e.errno != zmq.EAGAIN:
@@ -273,6 +311,7 @@ class Subscriber:
         self.sync_socket.connect(f"tcp://127.0.0.1:{sync_port}")
         self.sync_socket.setsockopt(zmq.RCVTIMEO, 10000)  # 2-second receive timeout
         self.running = True
+        self.uuid = str(uuid.uuid4())  # Unique identifier for this subscriber
 
         # Separate heartbeat socket
         self.hb_socket = self.context.socket(zmq.DEALER)
@@ -367,7 +406,7 @@ class Subscriber:
                     print(f"Received reply: {reply}")
 
                     if reply == b"SEND_GRID":
-                        self.sync_socket.send_pyobj(occupancy_grid)
+                        self.sync_socket.send_pyobj((self.uuid,occupancy_grid))
 
                         if self.sync_socket.poll(5000):
                             reply = self.sync_socket.recv()
