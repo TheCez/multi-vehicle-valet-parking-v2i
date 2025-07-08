@@ -744,7 +744,7 @@ def game_loop(args):
 
         occupationgrid = OccupationGrid(sim_world)
 
-        occupationgrid.start_visualization()
+        #occupationgrid.start_visualization()
 
         if args.sync:
             settings = sim_world.get_settings()
@@ -835,7 +835,12 @@ def game_loop(args):
                 #test.window.update_visualization()
                         # Update visualization
                 polygons = window.update_visualization()
-                occupationgrid.update_visualization(world.player, 2, 200, polygons)
+
+                reach_occupancygrid = occupationgrid.generate_occupation_grid(world.player, polygons)
+
+                final_occupancy_grid = subscriber.send_conflict(reach_occupancygrid)
+
+                #occupationgrid.update_visualization(world.player, 2, 200, polygons)
                 
                 # Process Qt events without blocking
                 QApplication.processEvents()

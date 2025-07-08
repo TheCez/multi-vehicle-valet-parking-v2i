@@ -159,8 +159,7 @@ class Master:
         start_time = time.time()
         poller = zmq.Poller()
         poller.register(self.sync_socket, zmq.POLLIN)
-        # Create a list to hold occupancy grids, one for each subscriber
-        occupancy_grids = [None] * Master.no_of_subscribers
+        occupancy_grids = []
 
         print(f"Waiting for {self.waiting_for_ack} acks or conflicts...")
 
@@ -177,26 +176,34 @@ class Master:
                         self.waiting_for_ack -= 1
 
                     elif msg == b"CONFLICT_DETECTION":
-                        print('Conflict detected!')
+                        print('I am here')
                         self.conflict_counter -= 1
-                        self.sync_socket.send(b"SEND_GRID")  # Respond immediately
+                        print(f"Conflict detected! Remaining conflicts: {self.conflict_counter}")
 
-                        # Now receive the grid from this subscriber
-                        grid = self.sync_socket.recv_pyobj()
-                        # Find the first available slot (None) and store the grid there
-                        for idx in range(len(occupancy_grids)):
-                            if occupancy_grids[idx] is None:
-                                occupancy_grids[idx] = grid
-                                break
-                        print(f"Received occupancy grid with shape {grid.shape}")
-                        np.save(f"occupancy_grid_{len(occupancy_grids)}.npy", grid)
-                        self.sync_socket.send(b"GRID_RECEIVED")  # Acknowledge grid receipt
-
+                        if self.conflict_counter == 0:
+                            print("All conflicts received! Requesting grids.")
+                            self.sync_socket.send(b"SEND_GRIDS")
+                            # Receive one grid per subscriber
+                            #for _ in range(Master.no_of_subscribers):
+                            grid = self.sync_socket.recv_pyobj()
+                                #self.sync_socket.send(b"GRID_RECEIVED")
+                            
+                            occupancy_grids.append(grid)
+                            if(len(occupancy_grids) == Master.no_of_subscribers):
+                                print("All occupancy grids received, processing...")
+                                for idx, grid in enumerate(occupancy_grids):
+                                    print(f"Received occupancy grid {idx + 1} with shape {grid.shape}")
+                                    np.save(f"occupancy_grid_{idx + 1}.npy", grid)
+                            self.sync_socket.send(b"CONFLICT_SOLVED")
+                            #break  # Exit after resolving conflict
+                        else:
+                            self.sync_socket.send(b"WAIT")
             except zmq.ZMQError as e:
                 if e.errno != zmq.EAGAIN:
                     print(f"ZMQ error: {e}")
                 time.sleep(0.01)
 
+        # Post-acknowledgment handling
         Master.no_of_subscribers = max(0, Master.no_of_subscribers - Master.pending_disconnects)
         Master.pending_disconnects = 0
         print(f"Adjusted subscribers: {Master.no_of_subscribers}")
@@ -353,6 +360,7 @@ class Subscriber:
     #     #     self.reset_sync_socket()
     
     def send_conflict(self, occupancy_grid):
+        """Send a conflict message and occupancy grid with REQ/REP protocol compliance."""
         print("Sending conflict message with retry logic...")
         max_retries = 3
         backoff = 0.1
@@ -362,28 +370,35 @@ class Subscriber:
                 self.sync_socket.send(b"CONFLICT_DETECTION")
                 print("Conflict message sent, waiting for master response...")
 
-                if self.sync_socket.poll(5000):
+                if self.sync_socket.poll(5000):  # Wait up to 5 seconds
                     reply = self.sync_socket.recv()
                     print(f"Received reply: {reply}")
 
-                    if reply == b"SEND_GRID":
-                        self.sync_socket.send_pyobj(occupancy_grid)
-
-                        if self.sync_socket.poll(5000):
-                            reply = self.sync_socket.recv()
-                            print(f"Received reply: {reply}")
-                            if reply == b"GRID_RECEIVED":
-                                print("Master acknowledged the grid.")
-                                return True
-                            else:
-                                print("Unexpected reply after sending grid, retrying...")
-                        else:
-                            print("No response after sending occupancy grid, retrying...")
-                    elif reply == b"WAIT":
+                    if reply == b"WAIT":
                         print("Master not ready, will retry after backoff...")
                         time.sleep(backoff)
                         backoff *= 2
                         continue  # Retry protocol
+
+                    elif reply == b"SEND_GRIDS":
+                        self.sync_socket.send_pyobj(occupancy_grid)
+
+                        reply = self.sync_socket.recv()
+                        if reply == b"GRID_RECEIVED":
+                            print("Occupancy grid sent successfully, waiting for final response...")
+
+                            if self.sync_socket.poll(5000):  # Wait up to 5 seconds
+                                reply = self.sync_socket.recv()
+                                print(f"Received reply: {reply}")
+                                if reply == b"CONFLICT_SOLVED":
+                                    print("Master solved the problem with the provided pickle files.")
+                                    return True
+                                else:
+                                    print("Unexpected reply after sending grid, retrying...")
+                            else:
+                                print("No response after sending occupancy grid, retrying...")
+                        else:
+                            print(f"Grid not received, retrying...")
                     else:
                         print("Unexpected reply from master, retrying...")
                 else:

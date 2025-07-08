@@ -13,6 +13,13 @@ class OccupationGrid:
         self.cell_size = cell_size
         self.center = grid_size // 2
         self.grid = self.create_2d_obstacle_grid()
+        # Color map: 0=white (free), 1=black (obstacle), 2=red (ego vehicle), 3=green (reachability sets)
+        self.color_map = np.array([[255, 255, 255],   # 0: white (free)
+                       [0, 0, 0],         # 1: black (obstacle)
+                       [255, 0, 0],       # 2: red (ego vehicle)
+                       [0, 255, 0]],      # 3: green (reachability sets)
+                      dtype=np.uint8)
+        self.visualization_running = False
 
     def create_2d_obstacle_grid(self):
         grid = np.zeros((self.grid_size, self.grid_size), dtype=np.uint8)
@@ -68,6 +75,25 @@ class OccupationGrid:
             world_corners.append(world_corner)
         return world_corners
     
+    def mark_polygons_on_grid(self, grid, polygons, center = None, cell_size = None, value=3):
+        if center is None:
+            center = self.center
+        if cell_size is None:
+            cell_size = self.cell_size
+        new_grid = grid.copy()
+        for polygon in polygons:
+            grid_corners = []
+            for cr_x, cr_y in polygon:
+                # Convert CommonRoad coordinates to grid indices
+                grid_col = int(center + cr_x / cell_size)
+                grid_row = int(center + (-cr_y) / cell_size)
+                grid_corners.append((grid_col, grid_row))
+            if len(grid_corners) >= 3:
+                mask = np.zeros(grid.shape, dtype=np.uint8)
+                cv2.fillPoly(mask, [np.array(grid_corners, dtype=np.int32)], value)
+                new_grid[mask == value] = value
+        return new_grid
+    
     def draw_polygons_on_grid(self,
                             target_grid,
                             polygons,
@@ -117,29 +143,30 @@ class OccupationGrid:
         Initializes the visualization window and color map.
         """
         self.window_name = window_name
-        # Color map: 0=white (free), 1=black (obstacle), 2=red (ego vehicle)
-        self.color_map = np.array([[255, 255, 255], [0, 0, 0], [255, 0, 0]], dtype=np.uint8)
         cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
         cv2.resizeWindow(self.window_name, 800, 800)
         self.visualization_running = True
 
 
-    def generate_occupation_grid(self, ego_vehicle, zoom_factor=2, context_size=200, polygons=None):
+    def generate_occupation_grid(self, ego_vehicle, polygons=None):
         """
         Generates the occupation grid and starts the visualization.
         """
-        # Ensure visualization is initialized
-        if not hasattr(self, 'window_name'):
-            self.start_visualization()
         # Mark ego vehicle on the grid
         current_grid = self.mark_ego_vehicle(self.grid, ego_vehicle)
+                # Draw polygons directly onto the full colored grid
+        if polygons is not None:
+            current_grid = self.mark_polygons_on_grid(
+                current_grid, polygons # Using black for road lines
+            )
         # Convert grid to color image
         colored_grid = self.color_map[current_grid]
-        # Draw polygons directly onto the full colored grid
-        if polygons is not None:
-            colored_grid = self.draw_polygons_on_grid(
-                colored_grid, polygons, color=(0, 0, 0), thickness=1 # Using black for road lines
-            )
+        # Save the colored grid as a text file (each pixel as RGB tuple)
+        #np.savetxt("colored_grid.txt", colored_grid.reshape(-1, 3), fmt='%d')
+        if(self.visualization_running):
+            return current_grid,colored_grid
+        else:
+            return current_grid
         
 
 
@@ -150,19 +177,22 @@ class OccupationGrid:
         Updates the visualization with the current ego vehicle position.
         Shows a zoomed-in context around the ego vehicle if present.
         """
+
+        
         # Ensure visualization is initialized
         if not hasattr(self, 'window_name'):
             self.start_visualization()
-        # Mark ego vehicle on the grid
-        current_grid = self.mark_ego_vehicle(self.grid, ego_vehicle)
-        # Convert grid to color image
-        colored_grid = self.color_map[current_grid]
-        # 3. Draw polygons directly onto the full colored grid
-        if polygons is not None:
-            # Note: We no longer pass ego_vehicle to this function
-            colored_grid = self.draw_polygons_on_grid(
-                colored_grid, polygons, color=(0, 0, 0), thickness=1 # Using black for road lines
-            )
+        current_grid,colored_grid = self.generate_occupation_grid(ego_vehicle, polygons)
+        # # Mark ego vehicle on the grid
+        # current_grid = self.mark_ego_vehicle(self.grid, ego_vehicle)
+        # # Convert grid to color image
+        # colored_grid = self.color_map[current_grid]
+        # # 3. Draw polygons directly onto the full colored grid
+        # if polygons is not None:
+        #     # Note: We no longer pass ego_vehicle to this function
+        #     colored_grid = self.draw_polygons_on_grid(
+        #         colored_grid, polygons, color=(0, 0, 0), thickness=1 # Using black for road lines
+        #     )
 
         # Find ego vehicle position
         ego_positions = np.where(current_grid == 2)

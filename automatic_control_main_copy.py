@@ -70,6 +70,10 @@ from CommonRoadSceneGenerator import CommonRoadSceneGenerator
 from PyQt6.QtWidgets import QApplication
 from mp_visualizer.CommonRoadVisualizer import CommonRoadVisualizer
 from PyQt6.QtCore import QTimer
+from VisualizationThread import VisualizationThread
+from synchroniser.synchroniser import Subscriber
+import time
+from occupation_grid.occupation_grid_with_grid_generator.occupation_grid import OccupationGrid
 # ==============================================================================
 # -- Global functions ----------------------------------------------------------
 # ==============================================================================
@@ -177,7 +181,7 @@ class World(object):
                 sys.exit(1)
             spawn_points = self.map.get_spawn_points()
             spawn_point = random.choice(spawn_points) if spawn_points else carla.Transform()
-            spawn_point = spawn_points[14]
+            spawn_point = spawn_points[10]
             self.player = self.world.try_spawn_actor(blueprint, spawn_point)
             self.modify_vehicle_physics(self.player)
 
@@ -716,13 +720,16 @@ def game_loop(args):
     ticking the agent and, if needed, the world.
     """
 
-    # Initialize Qt application in main thread
-    # app = QApplication([])
-    
 
+    # app = QApplication([])
+    # # Force initial GUI update
+    # QApplication.processEvents()
+    
+    subscriber = Subscriber()
 
     pygame.init()
     pygame.font.init()
+
     world = None
 
     try:
@@ -734,6 +741,10 @@ def game_loop(args):
 
         traffic_manager = client.get_trafficmanager()
         sim_world = client.get_world()
+
+        occupationgrid = OccupationGrid(sim_world)
+
+        #occupationgrid.start_visualization()
 
         if args.sync:
             settings = sim_world.get_settings()
@@ -765,65 +776,106 @@ def game_loop(args):
         # Set the agent destination
         spawn_points = world.map.get_spawn_points()
         destination = random.choice(spawn_points).location
-        destination = spawn_points[20].location
+        destination = spawn_points[3].location
         agent.set_destination(destination)
         clock = pygame.time.Clock()
+
+        # Initialize Qt in the main thread
+        app = QApplication([])
+        test = CommonRoadSceneGenerator(world.player)
+        window = CommonRoadVisualizer(test.base_config, test.scenario, test.planning_problem, test.world, world.player)
+        window.setGeometry(100, 100, 800, 600)
+        window.show()
+            # Force initial GUI update
+        QApplication.processEvents()
+
         #test = CommonRoadSceneGenerator()
         #test.run()
-        # Create QTimer for Qt event processing
 
-        #         # Create your Qt window
+
         # test = CommonRoadSceneGenerator()
-        # window = CommonRoadVisualizer(test.base_config, test.scenario, test.planning_problem, test.world)  # Your visualization window
-        # timer = QTimer()
-        # timer.timeout.connect(lambda: None)  # Empty lambda to force event processing
-        # timer.start(30)  # Update every 30ms
+        # vis_thread = VisualizationThread(
+        #     test.base_config,
+        #     test.scenario,
+        #     test.planning_problem,
+        #     test.world
+        # )
+        # vis_thread.start()
 
         while True:
+            if subscriber.receive_messages():
 
-            # Process Qt events in each iteration
-            QApplication.processEvents()
-            clock.tick()
-            if args.sync:
-                world.world.tick()
-            else:
-                world.world.wait_for_tick()
-            if controller.parse_events():
-                return
-            # Update Qt visualization
-            # window.update_visualization() 
-            
+                # Process Qt events in each iteration
+                # QApplication.processEvents()
+                clock.tick()
+                # if args.sync:
+                #     world.world.tick()
+                # else:
+                #     world.world.wait_for_tick()
+                if controller.parse_events():
+                    return
+                
 
-            world.tick(clock)
-            world.render(display)
-            pygame.display.flip()
+                world.tick(clock)
+                world.render(display)
+                pygame.display.flip()
 
-            if agent.done():
-                if args.loop:
-                    agent.set_destination(random.choice(spawn_points).location)
-                    world.hud.notification("Target reached", seconds=4.0)
-                    print("The target has been reached, searching for another target")
-                else:
-                    print("The target has been reached, stopping the simulation")
+                if agent.done():
+                    if args.loop:
+                        agent.set_destination(random.choice(spawn_points).location)
+                        world.hud.notification("Target reached", seconds=4.0)
+                        print("The target has been reached, searching for another target")
+                    else:
+                        print("The target has been reached, stopping the simulation")
+                        break
+
+                control = agent.run_step()
+                control.manual_gear_shift = False
+                world.player.apply_control(control)
+                #test.window.update_visualization()
+                        # Update visualization
+                polygons = window.update_visualization()
+
+                reach_occupancygrid = occupationgrid.generate_occupation_grid(world.player, polygons)
+
+                final_occupancy_grid = subscriber.send_conflict(reach_occupancygrid)
+
+                #occupationgrid.update_visualization(world.player, 2, 200, polygons)
+                
+                # Process Qt events without blocking
+                QApplication.processEvents()
+
+                if subscriber.acknowledge_message():
+                    # Acknowledge the message to the subscriber
+                    print("Message acknowledged")
+                
+                # [Exit conditions]
+                if controller.parse_events():
                     break
+            else:
+                time.sleep(0.1)
+                # Cleanup
+            # Close the subscriber connection
+            # subscriber.close()
+            # print("Subscriber closed")
+            app.quit()
 
-            control = agent.run_step()
-            control.manual_gear_shift = False
-            world.player.apply_control(control)
-            #test.window.update_visualization()
 
     finally:
 
-        if world is not None:
-            settings = world.world.get_settings()
-            settings.synchronous_mode = False
-            settings.fixed_delta_seconds = None
-            world.world.apply_settings(settings)
-            traffic_manager.set_synchronous_mode(True)
+        # if world is not None:
+        #     settings = world.world.get_settings()
+        #     settings.synchronous_mode = False
+        #     settings.fixed_delta_seconds = None
+        #     world.world.apply_settings(settings)
+        #     traffic_manager.set_synchronous_mode(True)
 
-            world.destroy()
-
+        #     world.destroy()
+        subscriber.close()
+        if world is not None and world.player is not None:
+            world.player.destroy()
         pygame.quit()
+        occupationgrid.stop_visualization()
 
 
 # ==============================================================================
@@ -864,7 +916,8 @@ def main():
     argparser.add_argument(
         '--filter',
         metavar='PATTERN',
-        default='vehicle.*',
+        #default='vehicle.*',
+        default='vehicle.mini.cooper_s',
         help='Actor filter (default: "vehicle.*")')
     argparser.add_argument(
         '--generation',
