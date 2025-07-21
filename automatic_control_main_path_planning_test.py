@@ -75,6 +75,7 @@ from synchroniser.synchroniser import Subscriber
 import time
 from occupation_grid.occupation_grid_with_grid_generator.occupation_grid import OccupationGrid
 from hybid_a_star_agent.MotionPlanning.HybridAstarPlanner import hybrid_astar
+from agents.navigation.controller import VehiclePIDController
 # ==============================================================================
 # -- Global functions ----------------------------------------------------------
 # ==============================================================================
@@ -710,6 +711,61 @@ class CameraManager(object):
         if self.recording:
             image.save_to_disk('_out/%08d' % image.frame)
 
+
+# ==============================================================================
+# -- Vehicle PID Controller ---------------------------------------------------------
+# ==============================================================================
+
+class FakeWaypoint:
+    def __init__(self, transform):
+        self.transform = transform
+
+def follow_path_with_pid(vehicle, path, speed=20):
+    """
+    Generator to follow a custom path using PID controller.
+    Each iteration yields a control command to apply to the vehicle.
+    """
+    controller = VehiclePIDController(
+        vehicle,
+        args_lateral={'K_P': 1.0, 'K_D': 0.0, 'K_I': 0.0},
+        args_longitudinal={'K_P': 1.0, 'K_D': 0.0, 'K_I': 0.0}
+    )
+
+    index = 0
+    num_points = len(path.x)
+
+    # Convert from grid map to world coordinates
+    def grid_to_world(gx, gy, center, cell_size):
+        x = (gx - center) * cell_size
+        y = (gy - center) * cell_size
+        return x, y
+    
+
+    grid_size = 500  # Assuming a grid size of 500x500
+    center = grid_size // 2
+    #center = getattr(path, 'center', 100)
+    cell_size = getattr(path, 'cell_size', 1.0)
+
+    while index < num_points:
+        # Generate world coordinate
+        world_x, world_y = grid_to_world(path.x[index], path.y[index], center, cell_size)
+        target_location = carla.Location(x=world_x, y=world_y, z=vehicle.get_location().z)
+        target_yaw = path.yaw[index]
+        target_rotation = carla.Rotation(yaw=target_yaw)
+        target_transform = carla.Transform(target_location, target_rotation)
+
+        # Wrap in a fake waypoint object so run_step doesn't crash
+        fake_wp = FakeWaypoint(target_transform)
+
+        # Get control from PID
+        control = controller.run_step(speed, fake_wp)
+        yield control
+
+        # Advance to next point if close enough
+        if vehicle.get_location().distance(target_location) < 1.0:
+            index += 1
+
+
 # ==============================================================================
 # -- Game Loop ---------------------------------------------------------
 # ==============================================================================
@@ -744,6 +800,7 @@ def game_loop(args):
         sim_world = client.get_world()
 
         occupationgrid = OccupationGrid(sim_world)
+        grid_map = occupationgrid.grid
 
         #occupationgrid.start_visualization()
 
@@ -762,24 +819,37 @@ def game_loop(args):
         hud = HUD(args.width, args.height)
         world = World(client.get_world(), hud, args)
         controller = KeyboardControl(world)
-        if args.agent == "Basic":
-            agent = BasicAgent(world.player, 30)
-            agent.follow_speed_limits(True)
-        elif args.agent == "Constant":
-            agent = ConstantVelocityAgent(world.player, 30)
-            ground_loc = world.world.ground_projection(world.player.get_location(), 5)
-            if ground_loc:
-                world.player.set_location(ground_loc.location + carla.Location(z=0.01))
-            agent.follow_speed_limits(True)
-        elif args.agent == "Behavior":
-            agent = BehaviorAgent(world.player, behavior=args.behavior)
+
+        # if args.agent == "Basic":
+        #     agent = BasicAgent(world.player, 30)
+        #     agent.follow_speed_limits(True)
+        # elif args.agent == "Constant":
+        #     agent = ConstantVelocityAgent(world.player, 30)
+        #     ground_loc = world.world.ground_projection(world.player.get_location(), 5)
+        #     if ground_loc:
+        #         world.player.set_location(ground_loc.location + carla.Location(z=0.01))
+        #     agent.follow_speed_limits(True)
+        # elif args.agent == "Behavior":
+        #     agent = BehaviorAgent(world.player, behavior=args.behavior)
 
         # Set the agent destination
         spawn_points = world.map.get_spawn_points()
-        destination = random.choice(spawn_points).location
+        # destination = random.choice(spawn_points).location
         destination = spawn_points[10].location
-        agent.set_destination(destination)
-        clock = pygame.time.Clock()
+        # agent.set_destination(destination)
+        # clock = pygame.time.Clock()
+
+        # Send world.player coordinates and yaw to hybrid_astar
+        player_transform = world.player.get_transform()
+        player_x = player_transform.location.x
+        player_y = player_transform.location.y
+        player_yaw = player_transform.rotation.yaw
+        destination_transform = carla.Transform(destination, world.player.get_transform().rotation)
+        destination_x = destination_transform.location.x
+        destination_y = destination_transform.location.y
+        destination_yaw = destination_transform.rotation.yaw
+
+        path = hybrid_astar.path_finder(player_x, player_y, player_yaw, destination_x, destination_y, destination_yaw, grid_map)
 
         # Initialize Qt in the main thread
         app = QApplication([])
@@ -789,6 +859,10 @@ def game_loop(args):
         window.show()
             # Force initial GUI update
         QApplication.processEvents()
+
+        # Initialize path follower
+        path_follower = follow_path_with_pid(world.player, path, speed=20)
+        clock = pygame.time.Clock()
 
         #test = CommonRoadSceneGenerator()
         #test.run()
@@ -821,18 +895,22 @@ def game_loop(args):
                 world.render(display)
                 pygame.display.flip()
 
-                if agent.done():
-                    if args.loop:
-                        agent.set_destination(random.choice(spawn_points).location)
-                        world.hud.notification("Target reached", seconds=4.0)
-                        print("The target has been reached, searching for another target")
-                    else:
-                        print("The target has been reached, stopping the simulation")
-                        break
+                # if agent.done():
+                #     if args.loop:
+                #         agent.set_destination(random.choice(spawn_points).location)
+                #         world.hud.notification("Target reached", seconds=4.0)
+                #         print("The target has been reached, searching for another target")
+                #     else:
+                #         print("The target has been reached, stopping the simulation")
+                #         break
 
-                control = agent.run_step()
-                control.manual_gear_shift = False
-                world.player.apply_control(control)
+                try:
+                    control = next(path_follower)
+                    control.manual_gear_shift = False
+                    world.player.apply_control(control)
+                except StopIteration:
+                    print("Reached the end of the path.")
+                    break
                 #test.window.update_visualization()
                         # Update visualization
                 polygons = window.update_visualization()
