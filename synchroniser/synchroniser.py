@@ -19,6 +19,14 @@ class Master:
         client = carla.Client('localhost', 2000)
         client.set_timeout(10.0)
         world = client.get_world()
+        # Set up spectator (viewer) camera position and orientation
+        spectator = world.get_spectator()
+        spectator.set_transform(
+            carla.Transform(
+                carla.Location(x=10.667169, y=43.477634, z=53.545383),
+                carla.Rotation(pitch=-88.994576, yaw=-90.239044, roll=-0.006716)
+            )
+        )
         self.oc = OccupationGridVisualizer(world=world)
         self.context = zmq.Context()
         
@@ -44,6 +52,8 @@ class Master:
         self.active_subscribers = {}
 
         
+        import queue
+        self.visualization_queue = queue.Queue()
         # Start background thread for polling subscription events
         self.polling_thread = threading.Thread(target=self.poll_subscriptions, daemon=True)
         self.polling_thread.start()
@@ -73,6 +83,9 @@ class Master:
                             print(f"New subscriber. Total: {Master.no_of_subscribers}")
                         elif message[0][0:1] == b'\x00':
                             Master.no_of_subscribers = max(0, Master.no_of_subscribers - 1)
+                            self.visualization_queue.put("stop")
+                            if Master.no_of_subscribers == 0:
+                                self.oc.stop_visualization()
                             print(f"Subscriber disconnected. Total: {Master.no_of_subscribers}")
                     except zmq.Again:
                         break  # No more messages to process
@@ -182,7 +195,7 @@ class Master:
                         self.waiting_for_ack -= 1
 
                     elif msg == b"CONFLICT_DETECTION":
-                        print('Conflict detected!')
+                        print('Conflict Checking...')
                         self.conflict_counter -= 1
                         self.sync_socket.send(b"SEND_GRID")  # Respond immediately
 
@@ -211,19 +224,93 @@ class Master:
                             # Merge all received occupancy grids with conflict handling
                             first_grid = next(iter(occupancy_grids.values()))
                             grid_shape = first_grid.shape
-                            merged_grid = np.empty(grid_shape, dtype=first_grid.dtype)
+                            merged_grid = np.empty(grid_shape, dtype= object)
+                            visualization_grid = np.empty(grid_shape, dtype=first_grid.dtype)
+                            temp_grid = np.empty(grid_shape, dtype=object)
+                            temp_grid_visualization = np.empty(grid_shape, dtype=first_grid.dtype)
+                            top_left = None
+                            top_right = None
+                            bottom_left = None
+                            bottom_right = None
+                            
+
 
                             # Copy the first grid as the base
                             merged_grid[:] = first_grid
+                            visualization_grid[:] = first_grid
+                            temp_grid.fill(1)
+                            temp_grid_visualization.fill(1)
+                            conflict = False
 
                             # Merge the rest of the grids
                             for _, grid in list(occupancy_grids.items())[1:]:
                                 for idx, value in np.ndenumerate(grid):
+                                    #print('Here')
+                                    #print(idx, value)
+                                    if merged_grid[idx]>= 3 or value >= 3:
+                                        # Track the bounds of values > 3
+                                        #if value > 3 or merged_grid[idx] > 3:
+                                        row, col = idx
+                                        if top_left is None:
+                                            top_left = (row, col)
+                                            bottom_right = (row, col)
+                                            top_right = (row, col)
+                                            bottom_left = (row, col)
+                                        else:
+                                            # Update bounds
+                                            if row < top_left[0] or col < top_left[1]:
+                                                top_left = (min(row, top_left[0]), min(col, top_left[1]))
+                                            if row < bottom_left[0] or col > bottom_left[1]:
+                                                bottom_left = (min(row, bottom_left[0]), max(col, bottom_left[1]))
+                                            if row > top_right[0] or col < top_right[1]:
+                                                top_right = (max(row, top_right[0]), min(col, top_right[1]))
+                                            if row > bottom_right[0] or col > bottom_right[1]:
+                                                bottom_right = (max(row, bottom_right[0]), max(col, bottom_right[1]))
+                                        #print('Here!!!!')
+                                        # If both are >= 3, add both to the list
+                                        if merged_grid[idx] >= 3 and value >= 3:
+                                            temp_grid[idx] = [merged_grid[idx], value]
+                                            conflict = True
+                                        # If only merged_grid[idx] is >= 3, add that
+                                        elif merged_grid[idx] >= 3:
+                                            temp_grid[idx] = [merged_grid[idx]]
+                                        # If only value is >= 3, add that
+                                        elif value >= 3:
+                                            temp_grid[idx] = [value]
+                                        temp_grid_visualization[idx] = max(visualization_grid[idx], value)
                                     if merged_grid[idx] != value:
-                                        merged_grid[idx] = max(merged_grid[idx], value)
+                                        merged_grid[idx] = [merged_grid[idx], value]
+
+                                        visualization_grid[idx] = max(visualization_grid[idx], value)
                                     # else: values are the same, do nothing
-                            
-                            self.oc.update_visualization2(current_grid = merged_grid)
+                            # If there was a conflict
+                            if conflict:
+                                print("Conflict detected!")
+                                # Ensure all corner points are set
+                                if None not in (top_left, top_right, bottom_left, bottom_right):
+                                    # Find min/max rows and cols to define the bounding box
+                                    min_row = min(top_left[0], bottom_left[0])
+                                    max_row = max(top_right[0], bottom_right[0])
+                                    min_col = min(top_left[1], top_right[1])
+                                    max_col = max(bottom_left[1], bottom_right[1])
+
+                                    # Extract the subgrid containing all four points
+                                    conflict_area = visualization_grid[min_row:max_row+1, min_col:max_col+1]
+                                    print(f"Extracted conflict area shape: {conflict_area.shape}")
+                                    np.save("output_occupancy_grids/conflict_area.npy", conflict_area)
+                                else:
+                                    print("Could not determine all four corners for conflict area extraction.")
+                                
+                            else:
+                                print("No conflicts detected.")
+                                # Save the merged grid to a file
+                                
+                            if len(occupancy_grids) == 1:
+                                print("Only one occupancy grid received, no conflicts to resolve.")
+                                self.oc.update_visualization2(current_grid=visualization_grid)
+                            else:
+                                self.oc.update_visualization2(current_grid=temp_grid_visualization)
+                            #self.oc.update_visualization2(current_grid = visualization_grid)
 
                             #np.save("output_occupancy_grids/merged_grid.npy", merged_grid)
                             print("Merged grid saved to output_occupancy_grids/merged_grid.npy")
@@ -357,7 +444,7 @@ class Subscriber:
         for attempt in range(max_retries):
             try:
                 self.sync_socket.send(b"ACK")
-                if self.sync_socket.poll(1000):  # Wait for response
+                if self.sync_socket.poll(10000):  # Wait for response
                     reply = self.sync_socket.recv()
                     print(f"Received reply: {reply.decode()}")
                     return True
@@ -514,14 +601,22 @@ if __name__ == "__main__":
     client.set_timeout(10.0)
     world = client.get_world()
 
-    #master = Master()
-
     while True:
         world.tick()
         print("CARLA world ticked")
         print(master.no_of_subscribers)
         master.broadcast_tick()
-        time.sleep(0.5)
+        # Check for visualization commands from the background thread
+        try:
+            while not master.visualization_queue.empty():
+                cmd = master.visualization_queue.get_nowait()
+                if cmd == "stop":
+                    master.oc.stop_visualization()
+        except Exception as e:
+            print(f"Error handling visualization command: {e}")
+        time.sleep(0.1)
+        master.broadcast_tick()
+        time.sleep(0.1)
     #subscriber = Subscriber()
 
     # # Simulate sending data

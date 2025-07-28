@@ -88,6 +88,7 @@ class OccupationGridVisualizer:
 
 
 
+
     def update_visualization2(self, zoom_factor=2, context_size=200, current_grid=None):
         """
         Updates the visualization with the current ego vehicle position.
@@ -161,5 +162,9 @@ class OccupationGridVisualizer:
         """
         Closes the visualization window and stops the animation.
         """
+        print("Stopping visualization...")
+        if hasattr(self, 'window_name'):
+            cv2.destroyWindow(self.window_name)
         cv2.destroyAllWindows()
+        # Removed cv2.waitKey(1) to avoid threading issues
         self.visualization_running = False
