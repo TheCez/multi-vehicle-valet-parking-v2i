@@ -247,7 +247,7 @@ class Master:
                                 for idx, value in np.ndenumerate(grid):
                                     #print('Here')
                                     #print(idx, value)
-                                    if merged_grid[idx]>= 3 or value >= 3:
+                                    if merged_grid[idx]>= 2 or value >= 2:
                                         # Track the bounds of values > 3
                                         #if value > 3 or merged_grid[idx] > 3:
                                         row, col = idx
@@ -268,16 +268,16 @@ class Master:
                                                 bottom_right = (max(row, bottom_right[0]), max(col, bottom_right[1]))
                                         #print('Here!!!!')
                                         # If both are >= 3, add both to the list
-                                        if merged_grid[idx] >= 3 and value >= 3:
+                                        if merged_grid[idx] >= 2 and value >= 2:
                                             temp_grid[idx] = [merged_grid[idx], value]
                                             conflict = True
                                         # If only merged_grid[idx] is >= 3, add that
-                                        elif merged_grid[idx] >= 3:
+                                        elif merged_grid[idx] >= 2:
                                             temp_grid[idx] = [merged_grid[idx]]
                                         # If only value is >= 3, add that
-                                        elif value >= 3:
+                                        elif value >= 2:
                                             temp_grid[idx] = [value]
-                                        temp_grid_visualization[idx] = max(visualization_grid[idx], value)
+                                        temp_grid_visualization[idx] = min(visualization_grid[idx], value)
                                     if merged_grid[idx] != value:
                                         merged_grid[idx] = [merged_grid[idx], value]
 
@@ -295,7 +295,7 @@ class Master:
                                     max_col = max(bottom_left[1], bottom_right[1])
 
                                     # Extract the subgrid containing all four points
-                                    conflict_area = temp_grid_visualization[min_row:max_row+1, min_col:max_col+1]
+                                    conflict_area = temp_grid[min_row:max_row+1, min_col:max_col+1]
                                     print(f"Extracted conflict area shape: {conflict_area.shape}")
                                     np.save("output_occupancy_grids/conflict_area.npy", conflict_area)
                                 else:
