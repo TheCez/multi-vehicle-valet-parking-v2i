@@ -92,7 +92,7 @@ class CommonRoadVisualizer(QMainWindow):
             initial_state = InitialState(
                 position=position,
                 orientation=orientation,
-                velocity=5,
+                velocity=6.5,
                 time_step=0,
                 yaw_rate=0.0,
                 slip_angle=0.0,

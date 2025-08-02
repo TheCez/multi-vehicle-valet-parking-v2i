@@ -184,8 +184,8 @@ class World(object):
             spawn_points = self.map.get_spawn_points()
             spawn_point = random.choice(spawn_points) if spawn_points else carla.Transform()
             spawn_point = spawn_points[5]
-            custom_location = carla.Location(x=24.5, y=30, z=2)
-            custom_rotation = carla.Rotation(pitch=0, yaw=90, roll=0)
+            custom_location = carla.Location(x=26, y=70, z=2)
+            custom_rotation = carla.Rotation(pitch=0, yaw=270, roll=0)
             spawn_point = carla.Transform(custom_location, custom_rotation)
             self.player = self.world.try_spawn_actor(blueprint, spawn_point)
             self.modify_vehicle_physics(self.player)
@@ -723,12 +723,6 @@ class FakeWaypoint:
     def __init__(self, transform):
         self.transform = transform
 
-# Convert from grid map to world coordinates
-def grid_to_world(gx, gy, center, cell_size):
-    x = (gx - center) * cell_size
-    y = (gy - center) * cell_size
-    return x, y
-
 def follow_path_with_pid(vehicle, path, speed=20):
     """
     Generator to follow a custom path using PID controller.
@@ -743,13 +737,17 @@ def follow_path_with_pid(vehicle, path, speed=20):
     index = 0
     num_points = len(path.x)
 
-
+    # Convert from grid map to world coordinates
+    def grid_to_world(gx, gy, center, cell_size):
+        x = (gx - center) * cell_size
+        y = (gy - center) * cell_size
+        return x, y
     
 
     grid_size = 500  # Assuming a grid size of 500x500
     center = grid_size // 2
     #center = getattr(path, 'center', 100)
-    cell_size = 0.5  # Assuming each cell in the grid is 0.5x0.5 meters
+    cell_size = 0.5  # Assuming each cell in the grid corresponds to 0.5 meters
 
     while index < num_points:
         # Generate world coordinate
@@ -841,7 +839,7 @@ def game_loop(args):
         spawn_points = world.map.get_spawn_points()
         # destination = random.choice(spawn_points).location
         destination = spawn_points[10].location
-        destination = carla.Location(x=24.5, y=70, z=0)
+        destination = carla.Location(x=26, y=30, z=0)
         # agent.set_destination(destination)
         # clock = pygame.time.Clock()
 
@@ -856,15 +854,6 @@ def game_loop(args):
         destination_yaw = math.radians(player_transform.rotation.yaw)
 
         path = hybrid_astar.path_finder(player_x, player_y, player_yaw, destination_x, destination_y, destination_yaw, grid_map)
-
-        # # Convert grid coordinates to world coordinates for the reference path
-        # grid_size = 500  # Should match the value used in follow_path_with_pid
-        # center = grid_size // 2
-        # cell_size = 0.5
-        # reference_path = [
-        #     [wx, -wy]
-        #     for wx, wy in (grid_to_world(x, y, center, cell_size) for x, y in zip(path.x, path.y))
-        # ]
 
         # Initialize Qt in the main thread
         app = QApplication([])

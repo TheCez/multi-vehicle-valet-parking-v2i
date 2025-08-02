@@ -111,7 +111,9 @@ from mp_visualizer.CommonRoadVisualizer import CommonRoadVisualizer
 
 
 class CommonRoadSceneGenerator:
-    def __init__(self, ego_vehicle):
+    def __init__(self, ego_vehicle, reference_path=None):
+
+        self.reference_path = reference_path
         # Load the converted scenario
         #scenario_path = "DEU_valetparking-1_1_T-1_base.xml"
         scenario_path = "ZAM_MUC-1_1_T-1.xml"
@@ -175,8 +177,9 @@ class CommonRoadSceneGenerator:
 
         # Commonroad reach
         self.base_config = create_base_configuration()
-        self.base_config.planning.steps_computation = 10
+        self.base_config.planning.steps_computation = 15
         self.base_config.planning.coordinate_system = "CART"
+        #self.base_config.planning.reference_path =self.reference_path
         #self.base_config.vehicle.ego.id_type_vehicle
         #self.window = CommonRoadVisualizer(self.base_config, self.scenario, self.planning_problem, self.world)
 

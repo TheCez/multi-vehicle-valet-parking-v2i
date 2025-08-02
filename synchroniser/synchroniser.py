@@ -27,7 +27,7 @@ class Master:
                 carla.Rotation(pitch=-88.994576, yaw=-90.239044, roll=-0.006716)
             )
         )
-        self.oc = OccupationGridVisualizer(world=world)
+        self.oc = OccupationGridVisualizer(world=world, cell_size=0.5)
         self.context = zmq.Context()
         
         # Publisher socket
@@ -295,7 +295,7 @@ class Master:
                                     max_col = max(bottom_left[1], bottom_right[1])
 
                                     # Extract the subgrid containing all four points
-                                    conflict_area = visualization_grid[min_row:max_row+1, min_col:max_col+1]
+                                    conflict_area = temp_grid_visualization[min_row:max_row+1, min_col:max_col+1]
                                     print(f"Extracted conflict area shape: {conflict_area.shape}")
                                     np.save("output_occupancy_grids/conflict_area.npy", conflict_area)
                                 else:
