@@ -71,7 +71,7 @@ from PyQt6.QtWidgets import QApplication
 from mp_visualizer.CommonRoadVisualizer import CommonRoadVisualizer
 from PyQt6.QtCore import QTimer
 from VisualizationThread import VisualizationThread
-from synchroniser.synchroniser import Subscriber
+from synchroniser.synchroniser_test import Subscriber
 import time
 from occupation_grid.occupation_grid_with_grid_generator.occupation_grid import OccupationGrid
 from hybid_a_star_agent.MotionPlanning.HybridAstarPlanner import hybrid_astar
@@ -893,67 +893,69 @@ def game_loop(args):
         # vis_thread.start()
 
         while True:
-            if subscriber.receive_messages():
+            tick_received = subscriber.receive_messages()
+            if tick_received:
+                # ack_ok = subscriber.acknowledge_message()
+                # if ack_ok:
+                    # Process Qt events in each iteration
+                    # QApplication.processEvents()
+                    clock.tick()
+                    # if args.sync:
+                    #     world.world.tick()
+                    # else:
+                    #     world.world.wait_for_tick()
+                    if controller.parse_events():
+                        return
+                    
 
-                # Process Qt events in each iteration
-                # QApplication.processEvents()
-                clock.tick()
-                # if args.sync:
-                #     world.world.tick()
-                # else:
-                #     world.world.wait_for_tick()
-                if controller.parse_events():
-                    return
-                
+                    world.tick(clock)
+                    world.render(display)
+                    pygame.display.flip()
 
-                world.tick(clock)
-                world.render(display)
-                pygame.display.flip()
+                    # if agent.done():
+                    #     if args.loop:
+                    #         agent.set_destination(random.choice(spawn_points).location)
+                    #         world.hud.notification("Target reached", seconds=4.0)
+                    #         print("The target has been reached, searching for another target")
+                    #     else:
+                    #         print("The target has been reached, stopping the simulation")
+                    #         break
 
-                # if agent.done():
-                #     if args.loop:
-                #         agent.set_destination(random.choice(spawn_points).location)
-                #         world.hud.notification("Target reached", seconds=4.0)
-                #         print("The target has been reached, searching for another target")
-                #     else:
-                #         print("The target has been reached, stopping the simulation")
-                #         break
+                    try:
+                        control = next(path_follower)
+                        control.manual_gear_shift = False
+                        world.player.apply_control(control)
+                    except StopIteration:
+                        print("Reached the end of the path.")
+                        break
+                    #test.window.update_visualization()
+                            # Update visualization
+                    polygons = window.update_visualization()
 
-                try:
-                    control = next(path_follower)
-                    control.manual_gear_shift = False
-                    world.player.apply_control(control)
-                except StopIteration:
-                    print("Reached the end of the path.")
-                    break
-                #test.window.update_visualization()
-                        # Update visualization
-                polygons = window.update_visualization()
+                    reach_occupancygrid = occupationgrid.generate_occupation_grid(world.player, polygons)
 
-                reach_occupancygrid = occupationgrid.generate_occupation_grid(world.player, polygons)
+                    final_occupancy_grid = subscriber.send_conflict(reach_occupancygrid)
 
-                final_occupancy_grid = subscriber.send_conflict(reach_occupancygrid)
-
-                # if final_occupancy_grid is True:
-                #     print("control side: No Conflict")
-                # else:
-                #     print("control side: Conflict detected, stopping the vehicle")
-                #     print("control side: ", final_occupancy_grid.shape)
-                #     #world.player.apply_control(carla.VehicleControl(throttle=0.0, brake=1.0))
+                    # if final_occupancy_grid is True:
+                    #     print("control side: No Conflict")
+                    # else:
+                    #     print("control side: Conflict detected, stopping the vehicle")
+                    #     print("control side: ", final_occupancy_grid.shape)
+                    #     #world.player.apply_control(carla.VehicleControl(throttle=0.0, brake=1.0))
 
 
-                #occupationgrid.update_visualization(world.player, 2, 200, polygons)
-                
-                # Process Qt events without blocking
-                QApplication.processEvents()
+                    #occupationgrid.update_visualization(world.player, 2, 200, polygons)
+                    
+                    # Process Qt events without blocking
+                    QApplication.processEvents()
 
-                if subscriber.acknowledge_message():
-                    # Acknowledge the message to the subscriber
-                    print("Message acknowledged")
-                
-                # [Exit conditions]
-                if controller.parse_events():
-                    break
+                    if subscriber.acknowledge_message():
+                        # Acknowledge the message to the subscriber
+                        print("Message acknowledged")
+                    
+                    # [Exit conditions]
+                    if controller.parse_events():
+                        break
             else:
                 time.sleep(0.1)
                 # Cleanup

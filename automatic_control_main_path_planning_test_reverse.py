@@ -923,6 +923,14 @@ def game_loop(args):
 
                 final_occupancy_grid = subscriber.send_conflict(reach_occupancygrid)
 
+                # if final_occupancy_grid is True:
+                #     print("control side: No Conflict")
+                # else:
+                #     print("control side: Conflict detected, stopping the vehicle")
+                #     print("control side: ", final_occupancy_grid.shape)
+                    #world.player.apply_control(carla.VehicleControl(throttle=0.0, brake=1.0))
+
+
                 #occupationgrid.update_visualization(world.player, 2, 200, polygons)
                 
                 # Process Qt events without blocking

@@ -71,7 +71,7 @@ from PyQt6.QtWidgets import QApplication
 from mp_visualizer.CommonRoadVisualizer import CommonRoadVisualizer
 from PyQt6.QtCore import QTimer
 from VisualizationThread import VisualizationThread
-from synchroniser.synchroniser import Subscriber
+from synchroniser.synchroniser2 import Subscriber
 import time
 from occupation_grid.occupation_grid_with_grid_generator.occupation_grid import OccupationGrid
 from hybid_a_star_agent.MotionPlanning.HybridAstarPlanner import hybrid_astar
@@ -891,7 +891,7 @@ def game_loop(args):
         #     test.world
         # )
         # vis_thread.start()
-
+        # subscriber = Subscriber()
         while True:
             if subscriber.receive_messages():
 
@@ -932,7 +932,15 @@ def game_loop(args):
 
                 reach_occupancygrid = occupationgrid.generate_occupation_grid(world.player, polygons)
 
-                final_occupancy_grid = subscriber.send_conflict(reach_occupancygrid)
+                sent = subscriber.send_conflict(reach_occupancygrid)
+
+                if sent:
+                    print("Conflict sent to subscriber")
+                    final_occupancy_grid = subscriber.receive_solution()
+                    if final_occupancy_grid is not None:
+                        print("Received final occupancy grid from subscriber")
+                        # Update the visualization with the final occupancy grid
+                        print("control side: ", final_occupancy_grid.shape)
 
                 # if final_occupancy_grid is True:
                 #     print("control side: No Conflict")

@@ -14,8 +14,9 @@ from occupation_grid.occupation_grid_with_grid_generator.occupation_grid_visuali
 class Master:
     no_of_subscribers = 0  # Static variable to keep track of subscribers
     pending_disconnects = 0  # Track pending disconnects to adjust after acknowledgment
+    
 
-    def __init__(self, pub_port=5555, sync_port=5556, hb_port=5557):
+    def __init__(self, pub_port=5555, sync_port=5556, hb_port=5557, tick_sync_port=5558):
         client = carla.Client('localhost', 2000)
         client.set_timeout(10.0)
         world = client.get_world()
@@ -39,6 +40,14 @@ class Master:
         # Sync socket for acknowledgments
         self.sync_socket = self.context.socket(zmq.REP)
         self.sync_socket.bind(f"tcp://127.0.0.1:{sync_port}")
+
+        # Tick synchronization socket
+        self.tick_sync_socket = self.context.socket(zmq.ROUTER)
+        self.tick_sync_socket.bind(f"tcp://127.0.0.1:{tick_sync_port}")  # choose a new port
+
+        self.awaiting_start = set()  # Registered IDs
+        self.tick_sync_poll_thread = threading.Thread(target=self.poll_tick_sync, daemon=True)
+        self.tick_sync_poll_thread.start()
         
         # Poller for subscription events
         self.poller = zmq.Poller()
@@ -50,6 +59,8 @@ class Master:
 
         # Initialize active subscribers dictionary for heartbeat tracking
         self.active_subscribers = {}
+        self.initial_car_flag = True
+        self.conflict_solved = None
 
         
         import queue
@@ -59,6 +70,23 @@ class Master:
         self.polling_thread.start()
         print("Background polling thread started for subscriber tracking.")
         self.last_heartbeat = time.time()
+
+    def poll_tick_sync(self):
+        """Listen for new subscribers registering for tick start signal."""
+        while True:
+            try:
+                identity, msg = self.tick_sync_socket.recv_multipart(zmq.NOBLOCK)
+                if msg == b"TICK_REGISTER":
+                    print(f"Subscriber {identity} registered for tick start")
+                    self.awaiting_start.add(identity)
+                if Master.no_of_subscribers == 0 and self.initial_car_flag:
+                    for identity in list(self.awaiting_start):
+                        Master.no_of_subscribers += 1
+                        self.tick_sync_socket.send_multipart([identity, b"TICK_START"])
+                        self.initial_car_flag = False  # Reset flag after first tick broadcast
+                        self.awaiting_start.clear()
+            except zmq.Again:
+                time.sleep(0.05)
 
 
     def poll_subscriptions(self):
@@ -78,14 +106,15 @@ class Master:
                 while True:
                     try:
                         message = self.pub_socket.recv_multipart(zmq.NOBLOCK)
-                        if message[0][0:1] == b'\x01':
-                            Master.no_of_subscribers += 1
-                            print(f"New subscriber. Total: {Master.no_of_subscribers}")
-                        elif message[0][0:1] == b'\x00':
+                        # if message[0][0:1] == b'\x01' and master.no_of_subscribers == 0:
+                        #    Master.no_of_subscribers += 1
+                        #    print(f"New subscriber. Total: {Master.no_of_subscribers}")
+                        if message[0][0:1] == b'\x00':
                             Master.no_of_subscribers = max(0, Master.no_of_subscribers - 1)
                             self.visualization_queue.put("stop")
                             if Master.no_of_subscribers == 0:
                                 self.oc.stop_visualization()
+                                #self.initial_car_flag = True
                             print(f"Subscriber disconnected. Total: {Master.no_of_subscribers}")
                     except zmq.Again:
                         break  # No more messages to process
@@ -98,6 +127,15 @@ class Master:
             # if time.time() - self.last_heartbeat > 2:
             #     self.pub_socket.send_string("HB")
             #     self.last_heartbeat = time.time()
+            # if self.awaiting_start and self.initial_car_flag:
+            #     for identity in list(self.awaiting_start):
+            #         self.tick_sync_socket.send_multipart([identity, b"TICK_START"])
+            #     print("Sent TICK_START to newly registered subscribers.")
+            #     Master.no_of_subscribers += len(self.awaiting_start)
+            #     self.awaiting_start.clear()  
+            #     self.initial_car_flag = False  # Reset flag after first tick broadcast
+            #     print('This is triggered' )
+        
                 
             # Original tick broadcast
             self.pub_socket.send_string("TICK")
@@ -180,6 +218,7 @@ class Master:
         poller.register(self.sync_socket, zmq.POLLIN)
         # Create a list to hold occupancy grids, one for each subscriber
         occupancy_grids = {}
+        
 
         print(f"Waiting for {self.waiting_for_ack} acks or conflicts...")
 
@@ -302,30 +341,31 @@ class Master:
                                 else:
                                     print("Could not determine all four corners for conflict area extraction.")
                                 # Store the conflict area for each subscriber
-                                conflict_solved = {}
+                                self.conflict_solved = {}
                                 for subscriber_id in occupancy_grids.keys():
-                                    conflict_solved[subscriber_id] = conflict_area
+                                    self.conflict_solved[subscriber_id] = conflict_area
                                 
                             else:
                                 print("No conflicts detected.")
-                                conflict_solved = {subscriber_id: 'No Conflict' for subscriber_id in occupancy_grids.keys()}
+                                self.conflict_solved = {subscriber_id: 'No Conflict' for subscriber_id in occupancy_grids.keys()}
                                 # Save the merged grid to a file
                             
 
-                            # Send the conflict area (or 'No Conflict') back to each subscriber, one at a time
-                            for subscriber_id in occupancy_grids.keys():
-                                status = self.sync_socket.recv()  # Wait for the subscriber to be ready
-                                if status == b"SEND_SOLUTION":
-                                    # Only send to the corresponding subscriber
-                                    self.sync_socket.send_pyobj(conflict_solved)
-                                    # # Wait for acknowledgment from this subscriber before proceeding
-                                    #     reply = self.sync_socket.recv()
-                                    #     if reply == b"SOLUTION_RECEIVED":
-                                    #         print(f"Received reply from: Solution acknowledged")
-                                    #     else:
-                                    #         print(f"Unexpected reply: {reply}")
-                                    # else:
-                                    #     print(f"No acknowledgment received")
+                            # # Send the conflict area (or 'No Conflict') back to each subscriber, one at a time
+
+                            # for subscriber_id in occupancy_grids.keys():
+                            #     status = self.sync_socket.recv()  # Wait for the subscriber to be ready
+                            #     if status == b"SEND_SOLUTION":
+                            #         # Only send to the corresponding subscriber
+                            #         self.sync_socket.send_pyobj(conflict_solved)
+                            #         # # Wait for acknowledgment from this subscriber before proceeding
+                            #         #     reply = self.sync_socket.recv()
+                            #         #     if reply == b"SOLUTION_RECEIVED":
+                            #         #         print(f"Received reply from: Solution acknowledged")
+                            #         #     else:
+                            #         #         print(f"Unexpected reply: {reply}")
+                            #         # else:
+                            #         #     print(f"No acknowledgment received")
                             
                             if len(occupancy_grids) == 1:
                                 print("Only one occupancy grid received, no conflicts to resolve.")
@@ -337,6 +377,16 @@ class Master:
                             #np.save("output_occupancy_grids/merged_grid.npy", merged_grid)
                             print("Merged grid saved to output_occupancy_grids/merged_grid.npy")
                             print("All conflicts resolved! Merging occupancy grids...")
+                    elif msg == b"SEND_SOLUTION":
+                        print("Received request for solution.")
+                        # Send the conflict area or 'No Conflict' back to the subscriber
+                        
+                        self.sync_socket.send_pyobj(self.conflict_solved)
+                        #reply = self.sync_socket.recv()
+                        #if reply == b"SOLUTION_RECEIVED":
+                        #    print("Solution acknowledged by subscriber.")
+
+                                 
                             
                     
 
@@ -344,6 +394,14 @@ class Master:
                 if e.errno != zmq.EAGAIN:
                     print(f"ZMQ error: {e}")
                 time.sleep(0.01)
+
+        if self.awaiting_start:
+            for identity in list(self.awaiting_start):
+                self.tick_sync_socket.send_multipart([identity, b"TICK_START"])
+            print("Sent TICK_START to newly registered subscribers.")
+            print('I started here')
+            Master.no_of_subscribers += len(self.awaiting_start)
+            self.awaiting_start.clear()  
 
         Master.no_of_subscribers = max(0, Master.no_of_subscribers - Master.pending_disconnects)
         Master.pending_disconnects = 0
@@ -412,8 +470,28 @@ class Master:
 
 
 class Subscriber:
-    def __init__(self, sub_port=5555, sync_port=5556, hb_port=5557):
+    def __init__(self, sub_port=5555, sync_port=5556, hb_port=5557, tick_sync_port=5558):
+
+
+        # Initialize subscriber sockets
         self.context = zmq.Context()
+        self.uuid = str(uuid.uuid4())  # Unique identifier for this subscriber
+
+        # Tick synchronization socket
+        self.tick_sync_socket = self.context.socket(zmq.DEALER)
+        self.tick_sync_socket.identity = self.uuid.encode()  # ensures ROUTER matches to identity
+        self.tick_sync_socket.connect(f"tcp://127.0.0.1:{tick_sync_port}")  # match master's new port
+
+        # Register for tick start
+        self.tick_sync_socket.send(b"TICK_REGISTER")
+        print("Waiting for tick synchronisation signal...")
+
+        msg = self.tick_sync_socket.recv()
+        if msg == b"TICK_START":
+            print("Received first tick, starting normal behaviour.")
+            # Now safe to start your SUB/REQ/REP logic as before
+
+
         self.sub_socket = self.context.socket(zmq.SUB)
         self.sub_socket.connect(f"tcp://127.0.0.1:{sub_port}")
         self.sub_socket.setsockopt_string(zmq.SUBSCRIBE, "")
@@ -421,7 +499,7 @@ class Subscriber:
         self.sync_socket.connect(f"tcp://127.0.0.1:{sync_port}")
         self.sync_socket.setsockopt(zmq.RCVTIMEO, 10000)  # 2-second receive timeout
         self.running = True
-        self.uuid = str(uuid.uuid4())  # Unique identifier for this subscriber
+
 
         # Separate heartbeat socket
         self.hb_socket = self.context.socket(zmq.DEALER)
@@ -429,6 +507,8 @@ class Subscriber:
 
         self.heartbeat_thread = threading.Thread(target=self.send_heartbeat, daemon=True)
         self.heartbeat_thread.start()
+
+
 
     def send_heartbeat(self):
         """Send periodic heartbeat messages to the Master to indicate liveness."""
@@ -522,18 +602,18 @@ class Subscriber:
                             reply = self.sync_socket.recv()
                             if reply == b"GRID_RECEIVED":
                                 print("Master acknowledged the grid.")
-                                #return True
-                                self.sync_socket.send(b"SEND_SOLUTION")
-                                if self.sync_socket.poll(5000):
-                                    reply = self.sync_socket.recv_pyobj()
-                                    if(reply[self.uuid] == 'No Conflict'):
-                                        print(f"Received reply: No Conflict")
-                                        #self.sync_socket.send(b"SOLUTION_RECEIVED")
-                                        return True
-                                    elif isinstance(reply[self.uuid], np.ndarray):
-                                        print('Received reply: Conflict Area')
-                                        #self.sync_socket.send(b"SOLUTION_RECEIVED")
-                                        return reply[self.uuid]  # Return the conflict area for this subscriber
+                                return True
+                                # self.sync_socket.send(b"SEND_SOLUTION")
+                                # if self.sync_socket.poll(5000):
+                                #     reply = self.sync_socket.recv_pyobj()
+                                #     if(reply[self.uuid] == 'No Conflict'):
+                                #         print(f"Received reply: No Conflict")
+                                #         #self.sync_socket.send(b"SOLUTION_RECEIVED")
+                                #         return True
+                                #     elif isinstance(reply[self.uuid], np.ndarray):
+                                #         print('Received reply: Conflict Area')
+                                #         #self.sync_socket.send(b"SOLUTION_RECEIVED")
+                                #         return reply[self.uuid]  # Return the conflict area for this subscriber
                             #if reply == b"GRID_RECEIVED":
                                 #print("Master acknowledged the grid.")
                                 #return True
@@ -563,6 +643,31 @@ class Subscriber:
 
         print("All retries failed. Could not send conflict message.")
         return False
+
+    def receive_solution(self):
+        """Receive the conflict area or 'No Conflict' from the master."""
+        try:
+            self.sync_socket.send(b"SEND_SOLUTION")
+            if self.sync_socket.poll(5000):
+                reply = self.sync_socket.recv_pyobj()
+                if reply is None:
+                    print("No Conflict")
+                    return None
+                if isinstance(reply[self.uuid], str) and reply[self.uuid] == 'No Conflict':
+                    print("Received reply: No Conflict")
+                    return None  # No conflict area to return
+                elif isinstance(reply[self.uuid], np.ndarray):
+                    print("Received reply: Conflict Area")
+                    return reply[self.uuid]  # Return the conflict area for this subscriber
+                else:
+                    print("Unexpected reply format.")
+            else:
+                print("No response from master.")
+        except Exception as e:
+            print(f"Error receiving solution: {e}")
+            self.reset_sync_socket()
+        return None
+
 
     def reset_sync_socket(self):
         """Reset the sync socket in case of failure."""

@@ -177,7 +177,7 @@ class CommonRoadSceneGenerator:
 
         # Commonroad reach
         self.base_config = create_base_configuration()
-        self.base_config.planning.steps_computation = 10
+        self.base_config.planning.steps_computation = 12
         self.base_config.planning.coordinate_system = "CART"
         #self.base_config.planning.reference_path =self.reference_path
         #self.base_config.vehicle.ego.id_type_vehicle
