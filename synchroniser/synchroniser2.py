@@ -6,6 +6,7 @@ import carla
 import threading
 import numpy as np
 from occupation_grid.occupation_grid_with_grid_generator.occupation_grid_visualizer import OccupationGridVisualizer
+from conflict_solver.solver import solve_conflict  # Import the conflict resolution function
 
 
 
@@ -51,6 +52,7 @@ class Master:
         # Initialize active subscribers dictionary for heartbeat tracking
         self.active_subscribers = {}
         self.conflict_solved = None
+        self.subscribers_data = {}  # Store subscriber data
 
         
         import queue
@@ -217,10 +219,21 @@ class Master:
                         if self.conflict_counter == 0:
                             # Assign unique values for '3' in each grid (starting from 4 for the second grid)
                             for idx, (subscriber_id, grid) in enumerate(occupancy_grids.items()):
-                                if idx == 0:
-                                    continue  # Skip the first grid
-                                new_value = 3 + idx  # 4 for second, 5 for third, etc.
-                                grid[grid == 3] = new_value
+                                
+                                # if idx == 0:
+                                #     continue  # Skip the first grid
+                                if subscriber_id not in self.subscribers_data:
+                                    len_subscribers = len(self.subscribers_data)
+                                    new_car_value = (len_subscribers * 2) + 2   # 4 for second, 5 for third, etc.
+                                    new_car_reach_value = new_car_value + 1
+                                    grid[grid == 2] = new_car_value
+                                    grid[grid == 3] = new_car_reach_value
+                                    self.subscribers_data[subscriber_id] = {'car_value': new_car_value, 'car_reach_value': new_car_reach_value}
+                                else:
+                                    new_car_value = self.subscribers_data[subscriber_id]['car_value']
+                                    new_car_reach_value = self.subscribers_data[subscriber_id]['car_reach_value']
+                                    grid[grid == 2] = new_car_value
+                                    grid[grid == 3] = new_car_reach_value
                             
                             # Merge all received occupancy grids with conflict handling
                             first_grid = next(iter(occupancy_grids.values()))
@@ -239,7 +252,7 @@ class Master:
                             # Copy the first grid as the base
                             merged_grid[:] = first_grid
                             visualization_grid[:] = first_grid
-                            temp_grid.fill(1)
+                            temp_grid.fill(0)
                             temp_grid_visualization.fill(1)
                             conflict = False
 
@@ -302,6 +315,7 @@ class Master:
                                 else:
                                     print("Could not determine all four corners for conflict area extraction.")
                                 # Store the conflict area for each subscriber
+                                solve_conflict(conflict_area)  # Call the conflict resolution function
                                 self.conflict_solved = {}
                                 for subscriber_id in occupancy_grids.keys():
                                     self.conflict_solved[subscriber_id] = conflict_area

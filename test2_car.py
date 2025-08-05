@@ -921,8 +921,25 @@ def game_loop(args):
                 polygons = window.update_visualization()
 
                 reach_occupancygrid = occupationgrid.generate_occupation_grid(world.player, polygons)
+                test_reach_occupancygrid = reach_occupancygrid.copy()
+                # Mark the path in the occupancy grid as -2
+                for gx, gy in zip(path.x, path.y):
+                    
+                    if 0 <= gx < reach_occupancygrid.shape[0] and 0 <= gy < reach_occupancygrid.shape[1]:
+                        #print('path:',gx, gy)
+                        if gx % 1 > 0.5:
+                            grid_x = int(np.ceil(gx))
+                        else:
+                            grid_x = int(np.floor(gx))
+                        if gy % 1 > 0.5:
+                            grid_y = int(np.ceil(gy))
+                        else:
+                            grid_y = int(np.floor(gy))
+                        test_reach_occupancygrid[grid_y, grid_x] = 2
 
-                sent = subscriber.send_conflict(reach_occupancygrid)
+
+                
+                sent = subscriber.send_conflict(test_reach_occupancygrid)
 
                 if sent:
                     print("Conflict sent to subscriber")
