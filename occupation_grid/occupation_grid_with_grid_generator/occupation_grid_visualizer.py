@@ -101,7 +101,7 @@ class OccupationGridVisualizer:
         if not hasattr(self, 'window_name'):
             self.start_visualization()
 
-        colored_grid = self.color_map[current_grid]
+        colored_grid = self.color_map[np.abs(current_grid)]
         # # Mark ego vehicle on the grid
         # current_grid = self.mark_ego_vehicle(self.grid, ego_vehicle)
         # # Convert grid to color image

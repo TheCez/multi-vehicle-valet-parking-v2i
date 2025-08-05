@@ -33,8 +33,8 @@ class OccupationGrid:
         new_grid = grid.copy()
         ego_bb = ego_vehicle.bounding_box
         ego_transform = ego_vehicle.get_transform()
-        self.mark_bounding_box(new_grid, ego_bb, self.center, self.cell_size, value=2, transform=ego_transform)
-        return new_grid
+        car_box_index = self.mark_bounding_box(new_grid, ego_bb, self.center, self.cell_size, value=2, transform=ego_transform)
+        return new_grid, car_box_index
 
     def mark_bounding_box(self, grid, bb, center, cell_size, value, transform=None):
         if transform:
@@ -54,6 +54,7 @@ class OccupationGrid:
         mask = np.zeros(grid.shape, dtype=np.uint8)
         cv2.fillPoly(mask, [np.array(grid_corners, dtype=np.int32)], value)
         grid[mask == value] = value
+        return grid_corners
 
     def get_bounding_box_corners(self, center, extent, rotation):
         yaw_rad = np.radians(rotation.yaw)
@@ -153,7 +154,7 @@ class OccupationGrid:
         Generates the occupation grid and starts the visualization.
         """
         # Mark ego vehicle on the grid
-        current_grid = self.mark_ego_vehicle(self.grid, ego_vehicle)
+        current_grid, car_box_index = self.mark_ego_vehicle(self.grid, ego_vehicle)
                 # Draw polygons directly onto the full colored grid
         if polygons is not None:
             current_grid = self.mark_polygons_on_grid(
@@ -166,7 +167,7 @@ class OccupationGrid:
         if(self.visualization_running):
             return current_grid,colored_grid
         else:
-            return current_grid
+            return current_grid, car_box_index
         
 
 

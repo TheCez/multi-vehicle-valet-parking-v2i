@@ -930,22 +930,43 @@ def game_loop(args):
                         # Update visualization
                 polygons = window.update_visualization()
 
-                reach_occupancygrid = occupationgrid.generate_occupation_grid(world.player, polygons)
+                reach_occupancygrid, car_box_index = occupationgrid.generate_occupation_grid(world.player, polygons)
                 test_reach_occupancygrid = reach_occupancygrid.copy()
                 # Mark the path in the occupancy grid as -2
                 for gx, gy in zip(path.x, path.y):
-                    
-                    if 0 <= gx < reach_occupancygrid.shape[0] and 0 <= gy < reach_occupancygrid.shape[1]:
-                        #print('path:',gx, gy)
-                        if gx % 1 > 0.5:
-                            grid_x = int(np.ceil(gx))
-                        else:
-                            grid_x = int(np.floor(gx))
-                        if gy % 1 > 0.5:
-                            grid_y = int(np.ceil(gy))
-                        else:
-                            grid_y = int(np.floor(gy))
-                        test_reach_occupancygrid[grid_y, grid_x] = 2
+                    # Only mark the path from the car's current grid position (car_box_index) to the end goal
+                    if car_box_index is not None and len(path.x) > 0:
+                        try:
+                            # Find the index in the path closest to the car's grid position
+                            #print("car_box_index:", car_box_index)
+                            # car_box_index is a list of (x, y) tuples representing the car's bounding box in the grid
+                            # To determine the front side, find the point in car_box_index closest to the first path point (car is heading toward path[0])
+                            # or, if the car is following the path, use the closest to the current path segment
+
+                            # Use the first point in the path as the direction reference
+                            path_head = np.array([path.x[0], path.y[0]])
+                            # Find the car_box_index point closest to the path head
+                            car_box_array = np.array(car_box_index)
+                            dists_to_path_head = np.linalg.norm(car_box_array - path_head, axis=1)
+                            front_idx = int(np.argmin(dists_to_path_head))
+                            car_gx, car_gy = car_box_index[front_idx]
+
+                            dists = [(gx - car_gx) ** 2 + (gy - car_gy) ** 2 for gx, gy in zip(path.x, path.y)]
+                            start_idx = int(np.argmin(dists))
+                            # Only mark from car position to the end of the path
+                            for gx, gy in zip(path.x[start_idx:], path.y[start_idx:]):
+                                if 0 <= gx < reach_occupancygrid.shape[0] and 0 <= gy < reach_occupancygrid.shape[1]:
+                                    if gx % 1 > 0.5:
+                                        grid_x = int(np.ceil(gx))
+                                    else:
+                                        grid_x = int(np.floor(gx))
+                                    if gy % 1 > 0.5:
+                                        grid_y = int(np.ceil(gy))
+                                    else:
+                                        grid_y = int(np.floor(gy))
+                                    test_reach_occupancygrid[grid_y, grid_x] = 2
+                        except Exception as e:
+                            print("Error marking path from car to goal:", e)
 
                 sent = subscriber.send_conflict(test_reach_occupancygrid)
 

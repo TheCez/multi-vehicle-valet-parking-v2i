@@ -6,4 +6,8 @@ def solve_conflict(conflict_area):
     It should contain the logic to resolve conflicts in the CommonRoad scenarios.
     """
     # Implement conflict resolution logic here
-    pass
+    conflict_area[conflict_area == 3] = 0
+    
+    return conflict_area 
+    
+    #pass

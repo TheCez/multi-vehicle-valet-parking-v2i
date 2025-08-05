@@ -217,23 +217,34 @@ class Master:
                         print(f"Conflict Count is {self.conflict_counter}")
 
                         if self.conflict_counter == 0:
+                            # Remove subscriber_data entries whose keys are not in occupancy_grids
+                            for key in list(self.subscribers_data.keys()):
+                                if key not in occupancy_grids:
+                                    del self.subscribers_data[key]
+                                    for sub_data in self.subscribers_data.values():
+                                        sub_data['car_value'] -= 2
+                                        sub_data['car_reach_value'] -= 2
                             # Assign unique values for '3' in each grid (starting from 4 for the second grid)
                             for idx, (subscriber_id, grid) in enumerate(occupancy_grids.items()):
                                 
                                 # if idx == 0:
                                 #     continue  # Skip the first grid
                                 if subscriber_id not in self.subscribers_data:
-                                    len_subscribers = len(self.subscribers_data)
-                                    new_car_value = (len_subscribers * 2) + 2   # 4 for second, 5 for third, etc.
+                                    #len_subscribers = len(self.subscribers_data)
+                                    new_car_value = ((Master.no_of_subscribers-1) * 2) + 2   # 4 for second, 5 for third, etc.
                                     new_car_reach_value = new_car_value + 1
+                                    new_path_value = -new_car_value
                                     grid[grid == 2] = new_car_value
                                     grid[grid == 3] = new_car_reach_value
-                                    self.subscribers_data[subscriber_id] = {'car_value': new_car_value, 'car_reach_value': new_car_reach_value}
+                                    grid[grid == -2] = new_path_value
+                                    self.subscribers_data[subscriber_id] = {'car_value': new_car_value, 'car_reach_value': new_car_reach_value, 'path_value': new_path_value}
                                 else:
-                                    new_car_value = self.subscribers_data[subscriber_id]['car_value']
-                                    new_car_reach_value = self.subscribers_data[subscriber_id]['car_reach_value']
-                                    grid[grid == 2] = new_car_value
-                                    grid[grid == 3] = new_car_reach_value
+                                    car_value = self.subscribers_data[subscriber_id]['car_value']
+                                    car_reach_value = self.subscribers_data[subscriber_id]['car_reach_value']
+                                    path_value = self.subscribers_data[subscriber_id]['path_value']
+                                    grid[grid == 2] = car_value
+                                    grid[grid == 3] = car_reach_value
+                                    grid[grid == -2] = path_value
                             
                             # Merge all received occupancy grids with conflict handling
                             first_grid = next(iter(occupancy_grids.values()))
@@ -253,7 +264,7 @@ class Master:
                             merged_grid[:] = first_grid
                             visualization_grid[:] = first_grid
                             temp_grid.fill(0)
-                            temp_grid_visualization.fill(1)
+                            temp_grid_visualization.fill(0)
                             conflict = False
 
                             # Merge the rest of the grids
@@ -282,16 +293,24 @@ class Master:
                                                 bottom_right = (max(row, bottom_right[0]), max(col, bottom_right[1]))
                                         #print('Here!!!!')
                                         # If both are >= 3, add both to the list
-                                        if merged_grid[idx] >= 2 and value >= 2:
+                                        if merged_grid[idx] >= 3 and value >= 5:
+                                            temp_grid[idx] = [merged_grid[idx], value]
+                                            conflict = True
+                                        if merged_grid[idx] >= 5 and value >= 3:
                                             temp_grid[idx] = [merged_grid[idx], value]
                                             conflict = True
                                         # If only merged_grid[idx] is >= 3, add that
-                                        elif merged_grid[idx] >= 2:
+                                        elif merged_grid[idx] >= 3:
                                             temp_grid[idx] = [merged_grid[idx]]
                                         # If only value is >= 3, add that
-                                        elif value >= 2:
+                                        elif value >= 5:
                                             temp_grid[idx] = [value]
-                                        temp_grid_visualization[idx] = min(visualization_grid[idx], value)
+                                        # if merged_grid[idx] == 3 and value == 5 :
+                                        #     conflict = True
+                                        
+                                        temp_grid_visualization[idx] = max(visualization_grid[idx], value)
+                                        #if temp_grid_visualization[idx] == 1:
+                                        #    temp_grid_visualization[idx] = 0
                                     if merged_grid[idx] != value:
                                         merged_grid[idx] = [merged_grid[idx], value]
 
@@ -315,7 +334,7 @@ class Master:
                                 else:
                                     print("Could not determine all four corners for conflict area extraction.")
                                 # Store the conflict area for each subscriber
-                                solve_conflict(conflict_area)  # Call the conflict resolution function
+                                temp_grid_visualization = solve_conflict(conflict_area)  # Call the conflict resolution function
                                 self.conflict_solved = {}
                                 for subscriber_id in occupancy_grids.keys():
                                     self.conflict_solved[subscriber_id] = conflict_area
