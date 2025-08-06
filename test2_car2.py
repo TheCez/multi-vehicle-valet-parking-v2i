@@ -71,11 +71,16 @@ from PyQt6.QtWidgets import QApplication
 from mp_visualizer.CommonRoadVisualizer import CommonRoadVisualizer
 from PyQt6.QtCore import QTimer
 from VisualizationThread import VisualizationThread
-from synchroniser.synchroniser2 import Subscriber
+from synchroniser.synchroniser3 import Subscriber
 import time
 from occupation_grid.occupation_grid_with_grid_generator.occupation_grid import OccupationGrid
 from hybid_a_star_agent.MotionPlanning.HybridAstarPlanner import hybrid_astar
 from agents.navigation.controller import VehiclePIDController
+import copy
+from scipy.interpolate import CubicSpline
+import numpy as np
+import os
+from scipy.ndimage import gaussian_filter1d
 # ==============================================================================
 # -- Global functions ----------------------------------------------------------
 # ==============================================================================
@@ -772,6 +777,97 @@ def follow_path_with_pid(vehicle, path, speed=20):
 
 
 # ==============================================================================
+# -- Update Path Dynamically ---------------------------------------------------
+# ==============================================================================
+
+def closest_point_on_path(path, new_path_point):
+    """
+    Find the closest point on the path to the new point.
+    Returns the index of the closest point and its coordinates.
+    """
+    min_distance = float('inf')
+    closest_index = -1
+    closest_point = None
+
+    for i, (x, y) in enumerate(zip(path.x, path.y)):
+        distance = math.sqrt((x - new_path_point[0]) ** 2 + (y - new_path_point[1]) ** 2)
+        if distance < min_distance:
+            min_distance = distance
+            closest_index = i
+            closest_point = (x, y)
+
+    return closest_index, closest_point
+
+def conflict_area_to_real_grid(data, conflict_area_bounds, grid_size=500, cell_size=0.5):
+    '""Convert conflict area bounds and data to real grid coordinates."""'
+    print('conversion: data:', data)
+    def to_grid(subgrid_row, subgrid_col):
+        """
+        Convert row and column indices to real grid coordinates.
+        """
+        x = min_col + subgrid_col
+        y = min_row + subgrid_row
+        return x, y
+    min_row = conflict_area_bounds['min_row']
+    max_row = conflict_area_bounds['max_row']
+    min_col = conflict_area_bounds['min_col']
+    max_col = conflict_area_bounds['max_col']
+
+    # If data is a list of coordinates (row, col)
+    if isinstance(data, list) and len(data) > 0 and isinstance(data[0], (list, tuple)):
+        real_coords = [to_grid(row, col) for row, col in data]
+    # If data is a single coordinate (row, col)
+    elif isinstance(data, (list, tuple)) and len(data) == 2:
+        real_coords = to_grid(data[0], data[1])
+    else:
+        real_coords = None  # Unknown format
+
+    return real_coords
+
+def round_off_grid(conflict_area):
+    #np.save("small_grids_test/path_non.npy", conflict_area)
+    conflict_shape = conflict_area.shape
+    max_axis = max(conflict_shape)
+    # Choose the new size: round up to nearest 50 or 100
+    if max_axis <= 50:
+        new_size = 50
+    elif max_axis <= 100:
+        new_size = 100
+    else:
+        new_size = ((max_axis + 99) // 100) * 100  # Next multiple of 100
+
+    # Pad conflict_area to new_size x new_size, fill new cells with 1
+    pad_y = new_size - conflict_shape[0]
+    pad_x = new_size - conflict_shape[1]
+    pad_top = pad_y // 2
+    pad_bottom = pad_y - pad_top
+    pad_left = pad_x // 2
+    pad_right = pad_x - pad_left
+
+    conflict_area_expanded = np.pad(
+        conflict_area,
+        ((pad_top, pad_bottom), (pad_left, pad_right)),
+        mode='constant',
+        constant_values=1
+    )
+    print("Expanded conflict_area shape:", conflict_area_expanded.shape)
+    np.save("small_grids_test/path.npy", conflict_area_expanded)
+    # Also increment the coordinates of points by the padding
+    pad_x = pad_left
+    pad_y = pad_top
+    # If you have a list of points to adjust, e.g. path_points = [(y, x), ...]
+    # You can adjust them like this:
+    # adjusted_points = [(y + pad_y, x + pad_x) for (y, x) in path_points]
+    # If you want to return the padding values for use elsewhere:
+    padding = {
+        'pad_x': pad_x,
+        'pad_y': pad_y
+    }
+
+    return conflict_area_expanded, padding
+
+
+# ==============================================================================
 # -- Game Loop ---------------------------------------------------------
 # ==============================================================================
 
@@ -876,7 +972,7 @@ def game_loop(args):
         QApplication.processEvents()
 
         # Initialize path follower
-        path_follower = follow_path_with_pid(world.player, path, speed=20)
+        path_follower = follow_path_with_pid(world.player, path, speed=6.5)
         clock = pygame.time.Clock()
 
         #test = CommonRoadSceneGenerator()
@@ -931,11 +1027,13 @@ def game_loop(args):
                 polygons = window.update_visualization()
 
                 reach_occupancygrid, car_box_index = occupationgrid.generate_occupation_grid(world.player, polygons)
-                test_reach_occupancygrid = reach_occupancygrid.copy()
+                test_reach_occupancygrid = reach_occupancygrid.copy().astype(np.int8)
                 # Mark the path in the occupancy grid as -2
-                for gx, gy in zip(path.x, path.y):
+                path_copy = copy.deepcopy(path)
+                for gx, gy in zip(path_copy.x, path_copy.y):
+                    # print("gx, gy:", gx, gy)
                     # Only mark the path from the car's current grid position (car_box_index) to the end goal
-                    if car_box_index is not None and len(path.x) > 0:
+                    if car_box_index is not None and len(path_copy.x) > 0:
                         try:
                             # Find the index in the path closest to the car's grid position
                             #print("car_box_index:", car_box_index)
@@ -944,17 +1042,17 @@ def game_loop(args):
                             # or, if the car is following the path, use the closest to the current path segment
 
                             # Use the first point in the path as the direction reference
-                            path_head = np.array([path.x[0], path.y[0]])
+                            path_head = np.array([path_copy.x[0], path_copy.y[0]])
                             # Find the car_box_index point closest to the path head
                             car_box_array = np.array(car_box_index)
                             dists_to_path_head = np.linalg.norm(car_box_array - path_head, axis=1)
                             front_idx = int(np.argmin(dists_to_path_head))
                             car_gx, car_gy = car_box_index[front_idx]
 
-                            dists = [(gx - car_gx) ** 2 + (gy - car_gy) ** 2 for gx, gy in zip(path.x, path.y)]
+                            dists = [(gx - car_gx) ** 2 + (gy - car_gy) ** 2 for gx, gy in zip(path_copy.x, path_copy.y)]
                             start_idx = int(np.argmin(dists))
                             # Only mark from car position to the end of the path
-                            for gx, gy in zip(path.x[start_idx:], path.y[start_idx:]):
+                            for gx, gy in zip(path_copy.x[start_idx:], path_copy.y[start_idx:]):
                                 if 0 <= gx < reach_occupancygrid.shape[0] and 0 <= gy < reach_occupancygrid.shape[1]:
                                     if gx % 1 > 0.5:
                                         grid_x = int(np.ceil(gx))
@@ -964,20 +1062,175 @@ def game_loop(args):
                                         grid_y = int(np.ceil(gy))
                                     else:
                                         grid_y = int(np.floor(gy))
-                                    test_reach_occupancygrid[grid_y, grid_x] = 2
+                                    test_reach_occupancygrid[grid_y, grid_x] = -2
                         except Exception as e:
                             print("Error marking path from car to goal:", e)
 
                 sent = subscriber.send_conflict(test_reach_occupancygrid)
-
 
                 if sent:
                     print("Conflict sent to subscriber")
                     final_occupancy_grid = subscriber.receive_solution()
                     if final_occupancy_grid is not None:
                         print("Received final occupancy grid from subscriber")
+                        conflict_area = final_occupancy_grid['conflict_area']
+                        new_path_point = final_occupancy_grid['new_path_point']
+                        conflict_area_bounds = final_occupancy_grid['conflict_area_bounds']
+                        real_path_point = conflict_area_to_real_grid(new_path_point, conflict_area_bounds)
+
+                        # Send world.player coordinates and yaw to hybrid_astar
+                        player_transform = world.player.get_transform()
+                        test_x, test_y =hybrid_astar.world_to_grid(player_transform.location.x, player_transform.location.y, 500 // 2, 0.5)
+                        player_x = player_transform.location.x
+                        player_y = player_transform.location.y
+                        player_yaw = math.radians(player_transform.rotation.yaw)
+                        #destination_transform = carla.Transform(destination, world.player.get_transform().rotation)
+                        destination_x = new_path_point[1]
+                        destination_y = new_path_point[0]
+                        #destination_yaw = math.radians(player_transform.rotation.yaw)
+                        # Expand the conflict_area to a square grid along its longest axis, fill new cells with 1
+                        small_grid, padding = round_off_grid(conflict_area)
+                        
+
+
+                        print("Control side: player_x, player_y, player_yaw:", test_x-conflict_area_bounds['min_col']+padding['pad_x'], test_y-conflict_area_bounds['min_row']+padding['pad_y'], player_yaw)
+                        print("Control side: destination_x, destination_y, destination_yaw:", destination_x+padding['pad_x'], destination_y+padding['pad_y'], destination_yaw)
+
+                        # Increment destination_y by 10, but ensure it doesn't exceed the conflict area bounds
+                        new_destination_y = destination_y + 10
+                        # max_y = conflict_area_bounds['max_row'] + padding['pad_y']
+                        # min_y = conflict_area_bounds['min_row'] + padding['pad_y']
+                        # # Clamp new_destination_y within bounds
+                        # new_destination_y = max(min_y, min(new_destination_y, max_y))
+
+                        # Compare with the final path point; if new_destination_y is beyond, use the final path point
+                        #final_path_y = path.y[-1] if path is not None  else new_destination_y
+                        if new_destination_y > path.y[-1]:
+                            new_destination_y = path.y[-1] + padding['pad_y'] - conflict_area_bounds['min_row']
+                            destination_x = path.x[-1] + padding['pad_x'] - conflict_area_bounds['min_col']
+
+                        updated_path = hybrid_astar.short_path_finder(
+                            player_x, player_y, player_yaw,
+                            destination_x, new_destination_y, destination_yaw,
+                            small_grid, conflict_area_bounds['min_col'], conflict_area_bounds['min_row'],
+                            padding['pad_x'], padding['pad_y']
+                        )
+
+
+                        #updated_path = hybrid_astar.short_path_finder(player_x, player_y, player_yaw, destination_x, destination_y+10, destination_yaw, small_grid, conflict_area_bounds['min_col'], conflict_area_bounds['min_row'], padding['pad_x'], padding['pad_y'])
+
+                        print("Control side: conflict_area : ", conflict_area.shape)
+                        print("Control side: new_path_point : ", new_path_point)
+                        print("Control side: conflict_area_bounds : ", conflict_area_bounds)
+                        print("Control side: waypoint to real grid: ", real_path_point)
+                        
+                        # print("Updated path x:", updated_path.x)
+                        # print("Updated path y:", updated_path.y)
+                        # print("Updated path (x, y) combo:")
+                        # for x, y in zip(path.x, path.y):
+                        #     print(f"original path: ({x}, {y})")
+
+                        # for x, y in zip(updated_path.x, updated_path.y):
+                        #     print(f"New path point: x={x-padding['pad_x'] + conflict_area_bounds['min_col']}, y={y-padding['pad_y']+ conflict_area_bounds['min_row']}")
+
+                        # Convert updated_path coordinates back to global grid coordinates
+                        
+
+                        if updated_path is not None:
+                            updated_path_x_global = [x - padding['pad_x'] + conflict_area_bounds['min_col'] for x in updated_path.x]
+                            updated_path_y_global = [y - padding['pad_y'] + conflict_area_bounds['min_row'] for y in updated_path.y]
+
+                            # Find closest points on original path to start and end of updated_path
+                            start_idx, start_pt = closest_point_on_path(path, (updated_path_x_global[0], updated_path_y_global[0]))
+                            end_idx, end_pt = closest_point_on_path(path, (updated_path_x_global[-1], updated_path_y_global[-1]))
+
+                            # Stitch the new path: remove everything before start_idx, add updated_path, then everything after end_idx
+                            stitched_x = list(updated_path_x_global) + list(path.x[end_idx+1:])
+                            stitched_y = list(updated_path_y_global) + list(path.y[end_idx+1:])
+
+                            # Make a copy of path before modifying
+                            new_path = copy.deepcopy(path)
+
+                            # Replace path.x and path.y with the stitched path
+                            #new_path.x = stitched_x
+                            #new_path.y = stitched_y
+
+                            path.x = stitched_x
+                            path.y = stitched_y
+
+                            # os.makedirs("path_test", exist_ok=True)
+                            # np.save(os.path.join("path_test", "path_x.npy"), np.array(path.x))
+                            # np.save(os.path.join("path_test", "path_y.npy"), np.array(path.y))
+                            # break
+
+                            # # Smooth the stitched path using cubic spline interpolation
+
+                            # # Only smooth if there are enough points
+                            # if len(path.x) > 3 and len(path.y) > 3:
+                            #     # Parameterize by cumulative distance along the path
+                            #     points = np.array(list(zip(path.x, path.y)))
+                            #     distances = np.sqrt(np.sum(np.diff(points, axis=0)**2, axis=1))
+                            #     t = np.concatenate(([0], np.cumsum(distances)))
+
+                            #     # Interpolate with cubic spline
+                            #     cs_x = CubicSpline(t, path.x)
+                            #     cs_y = CubicSpline(t, path.y)
+
+                            #     # Sample more points for smoothness
+                            #     t_new = np.linspace(0, t[-1], max(50, len(path.x)))
+                            #     path.x = cs_x(t_new).tolist()
+                            #     path.y = cs_y(t_new).tolist()
+
+                            # Smooth the path using a Gaussian filter
+                            sigma = 2  # Adjust sigma for more/less smoothing
+                            path.x = gaussian_filter1d(path.x, sigma)
+                            path.y = gaussian_filter1d(path.y, sigma)
+
+                            path_follower = follow_path_with_pid(world.player, new_path, speed=6.5)
+                            # print("Stitched path (x, y) combo:")
+                            # for x, y in zip(path.x, path.y):
+                            #     print(f"Stitched path: ({x}, {y})")
+
+
+                        # if updated_path is not None and len(updated_path.x) > 0:
+
+                        #     # Find closest points on original path to start and end of updated_path
+                        #     start_idx, start_pt = closest_point_on_path(path, (updated_path.y[0], updated_path.x[0]))
+                        #     end_idx, end_pt = closest_point_on_path(path, (updated_path.y[-1], updated_path.x[-1]))
+
+                        #     # Stitch the new path: remove everything before start_idx, add updated_path, then everything after end_idx
+                        #     stitched_x = list(updated_path.x) + list(path.x[end_idx+1:])
+                        #     stitched_y = list(updated_path.y) + list(path.y[end_idx+1:])
+
+                        #     # Replace path.x and path.y with the stitched path
+                        #     path.x = stitched_x
+                        #     path.y = stitched_y
+
+                        #     path_follower = follow_path_with_pid(world.player, path, speed=20)
+                
+
+
+
                         # Update the visualization with the final occupancy grid
-                        print("control side: ", final_occupancy_grid.shape)
+                        #print("control side: ", final_occupancy_grid.shape)
+                    else:
+                        print("Control side: No Conflict detected, proceeding with the path")
+
+
+                # if sent:
+                #     print("Conflict sent to subscriber")
+                #     final_occupancy_grid = subscriber.receive_solution()
+                #     if final_occupancy_grid is not None:
+                #         if final_occupancy_grid == 'No Conflict':
+                #             print("Control side : No Conflict detected, proceeding with the path")
+                #         else:
+                #             print('Control side:', 'Shape of final occupancy grid :', final_occupancy_grid['conflict_area'].shape)
+                #             print("Control side: Conflict detected, waypoint: ", final_occupancy_grid['new_path_point'])
+                #         #print("Received final occupancy grid from subscriber")
+                #         # Update the visualization with the final occupancy grid
+                #         #print("control side: ", final_occupancy_grid.shape)
+                #     else:
+                #         print("Control side: No Conflict detected, proceeding with the path")
 
                 # if final_occupancy_grid is True:
                 #     print("control side: No Conflict")

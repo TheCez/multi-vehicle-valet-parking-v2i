@@ -71,7 +71,7 @@ from PyQt6.QtWidgets import QApplication
 from mp_visualizer.CommonRoadVisualizer import CommonRoadVisualizer
 from PyQt6.QtCore import QTimer
 from VisualizationThread import VisualizationThread
-from synchroniser.synchroniser2 import Subscriber
+from synchroniser.synchroniser3 import Subscriber
 import time
 from occupation_grid.occupation_grid_with_grid_generator.occupation_grid import OccupationGrid
 from hybid_a_star_agent.MotionPlanning.HybridAstarPlanner import hybrid_astar
@@ -865,7 +865,7 @@ def game_loop(args):
         QApplication.processEvents()
 
         # Initialize path follower
-        path_follower = follow_path_with_pid(world.player, path, speed=20)
+        path_follower = follow_path_with_pid(world.player, path, speed=6.5)
         clock = pygame.time.Clock()
 
         #test = CommonRoadSceneGenerator()
@@ -921,7 +921,7 @@ def game_loop(args):
                 polygons = window.update_visualization()
 
                 reach_occupancygrid, car_box_index = occupationgrid.generate_occupation_grid(world.player, polygons)
-                test_reach_occupancygrid = reach_occupancygrid.copy()
+                test_reach_occupancygrid = reach_occupancygrid.copy().astype(np.int8)
                 #print('car_box_index:', car_box_index)
                 # Mark the path in the occupancy grid as -2
                 for gx, gy in zip(path.x, path.y):
@@ -955,7 +955,7 @@ def game_loop(args):
                                         grid_y = int(np.ceil(gy))
                                     else:
                                         grid_y = int(np.floor(gy))
-                                    test_reach_occupancygrid[grid_y, grid_x] = 2
+                                    test_reach_occupancygrid[grid_y, grid_x] = -2
                         except Exception as e:
                             print("Error marking path from car to goal:", e)
                     
@@ -980,8 +980,29 @@ def game_loop(args):
                     final_occupancy_grid = subscriber.receive_solution()
                     if final_occupancy_grid is not None:
                         print("Received final occupancy grid from subscriber")
+                        print("Control side: conflict_area : ", final_occupancy_grid['conflict_area'].shape)
+                        print("Control side: new_path_point : ", final_occupancy_grid['new_path_point'])
                         # Update the visualization with the final occupancy grid
-                        print("control side: ", final_occupancy_grid.shape)
+                        #print("control side: ", final_occupancy_grid.shape)
+                    else:
+                        print("Control side: No Conflict detected, proceeding with the path")
+
+
+
+                # if sent:
+                #     print("Conflict sent to subscriber")
+                #     final_occupancy_grid = subscriber.receive_solution()
+                #     if final_occupancy_grid is not None:
+                #         if final_occupancy_grid == 'No Conflict':
+                #             print("Control side : No Conflict detected, proceeding with the path")
+                #         else:
+                #             print('Control side:', 'Shape of final occupancy grid :', final_occupancy_grid['conflict_area'].shape)
+                #             print("Control side: Conflict detected, waypoint: ", final_occupancy_grid['new_path_point'])
+                #         #print("Received final occupancy grid from subscriber")
+                #         # Update the visualization with the final occupancy grid
+                #         #print("control side: ", final_occupancy_grid.shape)
+                #     else:
+                #         print("Control side: No Conflict detected, proceeding with the path")
 
 
                 # if final_occupancy_grid is True:

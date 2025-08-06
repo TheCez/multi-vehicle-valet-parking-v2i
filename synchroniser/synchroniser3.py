@@ -5,11 +5,9 @@ import uuid
 import carla
 import threading
 import numpy as np
+import pickle
 from occupation_grid.occupation_grid_with_grid_generator.occupation_grid_visualizer import OccupationGridVisualizer
 from conflict_solver.solver import solve_conflict  # Import the conflict resolution function
-
-
-
 
 
 class Master:
@@ -53,7 +51,6 @@ class Master:
         self.active_subscribers = {}
         self.conflict_solved = None
         self.subscribers_data = {}  # Store subscriber data
-
         
         import queue
         self.visualization_queue = queue.Queue()
@@ -63,11 +60,9 @@ class Master:
         print("Background polling thread started for subscriber tracking.")
         self.last_heartbeat = time.time()
 
-
     def poll_subscriptions(self):
         """Background method to track subscriber connections/disconnections."""
         while True:
-
             # Check heartbeat socket
             try:
                 identity, hb = self.hb_socket.recv_multipart(zmq.NOBLOCK)
@@ -92,86 +87,16 @@ class Master:
                             print(f"Subscriber disconnected. Total: {Master.no_of_subscribers}")
                     except zmq.Again:
                         break  # No more messages to process
-                    #print(f"Subscriber disconnected. Total: {Master.no_of_subscribers}")
             time.sleep(0.01)  # Reduced sleep for faster response
 
     def broadcast_tick(self):
-        #try:
-            # # Send heartbeat every 2 seconds
-            # if time.time() - self.last_heartbeat > 2:
-            #     self.pub_socket.send_string("HB")
-            #     self.last_heartbeat = time.time()
-                
-            # Original tick broadcast
-            self.pub_socket.send_string("TICK")
-            print("Tick broadcasted")
-            
-            if Master.no_of_subscribers > 0:
-                self.verify_acknowledgment()
-            return True
-        # except Exception as e:
-        #     print(f"Error broadcasting tick: {e}")
-        #     return False
-    
-    # def verify_acknowledgment(self):
-    #     self.waiting_for_ack = Master.no_of_subscribers
-    #     self.conflict_counter = Master.no_of_subscribers
-    #     timeout = 10.0
-    #     start_time = time.time()
-    #     poller = zmq.Poller()
-    #     poller.register(self.sync_socket, zmq.POLLIN)
+        # Original tick broadcast
+        self.pub_socket.send_string("TICK")
+        print("Tick broadcasted")
         
-    #     print(f"Waiting for {self.waiting_for_ack} acks...")
-    #     while self.waiting_for_ack > 0 and (time.time() - start_time) < timeout:
-    #         try:
-    #             events = dict(poller.poll(500))  # 500ms timeout per poll
-    #             if self.sync_socket in events:
-    #                 msg = self.sync_socket.recv()
-    #                 print(f"Received message: {msg}")
-    #                 if msg == b"ACK":
-    #                     print("Valid ACK received")
-    #                     self.sync_socket.send(b"ACK_RECEIVED")
-    #                     self.waiting_for_ack -= 1
-    #                 elif msg == b"CONFLICT":
-    #                     self.conflict_counter -= 1
-    #                 print(f"Conflict detected! Remaining conflicts: {self.conflict_counter}")
-    #                 if self.conflict_counter == 0:
-    #                     print("Conflict received! Expecting two pickle files.")
-    #                     self.sync_socket.send(b"SEND_GRIDS")
-    #                     self.no_of_grids = Master.no_of_subscribers
-    #                     occupancy_grids = []
-    #                     # Receive two pickle files from the subscriber
-    #                     while self.no_of_grids > 0:
-    #                         occupancy_grids.append(self.sync_socket.recv_pyobj())
-    #                     #occupancy_grid_2 = self.sync_socket.recv_pyobj()
-    #                     # # Convert to numpy array if not already
-    #                     # if not isinstance(occupancy_grid_2, np.ndarray):
-    #                     #     occupancy_grid_2 = np.array(occupancy_grid_2)
-
-    #                     # occupancy_grid_2[occupancy_grid_2 == 3] = 4
-                        # # Merge the two occupancy grids, storing conflicts as lists
-                        # merged_grid = np.empty_like(occupancy_grid_2, dtype=object)
-                        # for idx, (val1, val2) in np.ndenumerate(zip(occupancy_grid_1.flat, occupancy_grid_2.flat)):
-                        #     if val1 == val2:
-                        #         merged_grid[idx] = val1
-                        #     else:
-                        #         merged_grid[idx] = [val1, val2]
-                        # # Save the merged grid to a file
-                        # np.save("merged_grid.npy", merged_grid)
-    #                     # #self.solve_problem("file1.pkl", "file2.pkl")
-    #                     self.sync_socket.send(b"CONFLICT_SOLVED")
-    #                 else:
-    #                     self.sync_socket.send(b"WAIT")
-    #         except zmq.ZMQError as e:
-    #             if e.errno != zmq.EAGAIN:
-    #                 print(f"ZMQ error: {e}")
-    #             time.sleep(0.01)
-        
-    #     # Post-acknowledgment handling
-    #     Master.no_of_subscribers = max(0, Master.no_of_subscribers - Master.pending_disconnects)
-    #     Master.pending_disconnects = 0
-    #     print(f"Adjusted subscribers: {Master.no_of_subscribers}")
-
+        if Master.no_of_subscribers > 0:
+            self.verify_acknowledgment()
+        return True
 
     def verify_acknowledgment(self):
         self.waiting_for_ack = Master.no_of_subscribers
@@ -189,32 +114,32 @@ class Master:
             try:
                 events = dict(poller.poll(500))
                 if self.sync_socket in events:
-                    msg = self.sync_socket.recv()
-                    print(f"Received message: {msg}")
+                    # Receive the entire message using multipart
+                    parts = self.sync_socket.recv_multipart()
+                    msg_type = parts[0]
+                    print(f"Received message: {msg_type}")
 
-                    if msg == b"ACK":
+                    if msg_type == b"ACK":
                         print("Valid ACK received")
                         self.sync_socket.send(b"ACK_RECEIVED")
                         self.waiting_for_ack -= 1
 
-                    elif msg == b"CONFLICT_DETECTION":
+                    elif msg_type == b"CONFLICT_DETECTION":
                         print('Conflict Checking...')
                         self.conflict_counter -= 1
-                        self.sync_socket.send(b"SEND_GRID")  # Respond immediately
-
-                        # Now receive the grid from this subscriber
-                        subscriber_id, grid = self.sync_socket.recv_pyobj()
-
-                        occupancy_grids[subscriber_id] = grid  # Store the grid with subscriber ID as key
-                        # Find the first available slot (None) and store the grid there
-                        # for idx in range(len(occupancy_grids)):
-                        #     if occupancy_grids[idx] is None:
-                        #         occupancy_grids[idx] = grid
-                        #         break
-                        print(f"Received occupancy grid from {subscriber_id} with shape {grid.shape}")
-                        np.save(f"output_occupancy_grids/occupancy_grid_{subscriber_id}.npy", grid)
-                        self.sync_socket.send(b"GRID_RECEIVED")  # Acknowledge grid receipt
-                        print(f"Conflict Count is {self.conflict_counter}")
+                        
+                        # Extract the pickled data from the multipart message
+                        if len(parts) > 1:
+                            subscriber_id, grid = pickle.loads(parts[1])
+                            occupancy_grids[subscriber_id] = grid
+                            print(f"Received occupancy grid from {subscriber_id} with shape {grid.shape}")
+                            np.save(f"output_occupancy_grids/occupancy_grid_{subscriber_id}.npy", grid)
+                            self.sync_socket.send(b"GRID_RECEIVED")
+                            print(f"Conflict Count is {self.conflict_counter}")
+                        else:
+                            print("Error: CONFLICT_DETECTION message missing grid data")
+                            self.sync_socket.send(b"ERROR_MISSING_DATA")
+                            continue
 
                         if self.conflict_counter == 0:
                             # Remove subscriber_data entries whose keys are not in occupancy_grids
@@ -224,13 +149,10 @@ class Master:
                                     for sub_data in self.subscribers_data.values():
                                         sub_data['car_value'] -= 2
                                         sub_data['car_reach_value'] -= 2
+                            
                             # Assign unique values for '3' in each grid (starting from 4 for the second grid)
                             for idx, (subscriber_id, grid) in enumerate(occupancy_grids.items()):
-                                
-                                # if idx == 0:
-                                #     continue  # Skip the first grid
                                 if subscriber_id not in self.subscribers_data:
-                                    #len_subscribers = len(self.subscribers_data)
                                     new_car_value = ((Master.no_of_subscribers-1) * 2) + 2   # 4 for second, 5 for third, etc.
                                     new_car_reach_value = new_car_value + 1
                                     new_path_value = -new_car_value
@@ -257,8 +179,6 @@ class Master:
                             top_right = None
                             bottom_left = None
                             bottom_right = None
-                            
-
 
                             # Copy the first grid as the base
                             merged_grid[:] = first_grid
@@ -270,11 +190,8 @@ class Master:
                             # Merge the rest of the grids
                             for _, grid in list(occupancy_grids.items())[1:]:
                                 for idx, value in np.ndenumerate(grid):
-                                    #print('Here')
-                                    #print(idx, value)
                                     if abs(merged_grid[idx])>= 2 or abs(value) >= 2:
                                         # Track the bounds of values > 3
-                                        #if value > 3 or merged_grid[idx] > 3:
                                         row, col = idx
                                         if top_left is None:
                                             top_left = (row, col)
@@ -291,7 +208,7 @@ class Master:
                                                 top_right = (max(row, top_right[0]), min(col, top_right[1]))
                                             if row > bottom_right[0] or col > bottom_right[1]:
                                                 bottom_right = (max(row, bottom_right[0]), max(col, bottom_right[1]))
-                                        #print('Here!!!!')
+                                        
                                         # If both are >= 3, add both to the list
                                         if merged_grid[idx] >= 3 and value >= 5:
                                             temp_grid[idx] = [merged_grid[idx], value]
@@ -305,8 +222,7 @@ class Master:
                                         # If only value is >= 3, add that
                                         elif value >= 5:
                                             temp_grid[idx] = [value]
-                                        # if merged_grid[idx] == 3 and value == 5 :
-                                        #     conflict = True
+                                        
                                         # Store the value (merged_grid[idx] or value) that has the largest absolute value
                                         if abs(visualization_grid[idx]) >= abs(value):
                                             temp_grid_visualization[idx] = visualization_grid[idx]
@@ -317,13 +233,11 @@ class Master:
                                             temp_grid_visualization[idx] = visualization_grid[idx]
                                         if value in (2, 4):
                                             temp_grid_visualization[idx] = value
-                                        #if temp_grid_visualization[idx] == 1:
-                                        #    temp_grid_visualization[idx] = 0
                                     if merged_grid[idx] != value:
                                         merged_grid[idx] = [merged_grid[idx], value]
-
                                         visualization_grid[idx] = max(visualization_grid[idx], value)
                                     # else: values are the same, do nothing
+                            
                             # If there was a conflict
                             if conflict:
                                 print("Conflict detected!")
@@ -341,12 +255,12 @@ class Master:
                                     np.save("output_occupancy_grids/conflict_area.npy", conflict_area)
                                 else:
                                     print("Could not determine all four corners for conflict area extraction.")
+                                
                                 # Store the conflict area for each subscriber
                                 conflict_area, new_path_point = solve_conflict(conflict_area)  # Call the conflict resolution function
                                 self.conflict_solved = {}
                                 sub_id = None
-                                # if np.any((conflict_area == 2)):
-                                #     print("conflict_area contains 2")
+                                
                                 if new_path_point is not None:
                                     if np.any((conflict_area == 4)):
                                         print("conflict_area contains 4")
@@ -355,6 +269,7 @@ class Master:
                                             if sub_data['car_value'] == 4:
                                                 print(f"Subscriber with car_value 4: {sub_id}")
                                                 break
+                                
                                 for subscriber_id in occupancy_grids.keys():
                                     if subscriber_id == sub_id:
                                         conflict_area[(conflict_area == 4)] = 0
@@ -371,31 +286,23 @@ class Master:
                                     else:
                                         self.conflict_solved[subscriber_id] = 'No Conflict'
                                 temp_grid_visualization = conflict_area
-
-                                
                             else:
                                 print("No conflicts detected.")
                                 self.conflict_solved = {subscriber_id: 'No Conflict' for subscriber_id in occupancy_grids.keys()}
-                                # Save the merged grid to a file
                                 
                             if len(occupancy_grids) == 1:
                                 print("Only one occupancy grid received, no conflicts to resolve.")
                                 self.oc.update_visualization2(current_grid=visualization_grid)
                             else:
                                 self.oc.update_visualization2(current_grid=temp_grid_visualization)
-                            #self.oc.update_visualization2(current_grid = visualization_grid)
 
-                            #np.save("output_occupancy_grids/merged_grid.npy", merged_grid)
                             print("Merged grid saved to output_occupancy_grids/merged_grid.npy")
                             print("All conflicts resolved! Merging occupancy grids...")
-                    elif msg == b"SEND_SOLUTION":
+                    
+                    elif msg_type == b"SEND_SOLUTION":
                         print("Received request for solution.")
                         # Send the conflict area or 'No Conflict' back to the subscriber
-                        
                         self.sync_socket.send_pyobj(self.conflict_solved)
-                        #reply = self.sync_socket.recv()
-                        #if reply == b"SOLUTION_RECEIVED":
-                        #    print("Solution acknowledged by subscriber.")
 
             except zmq.ZMQError as e:
                 if e.errno != zmq.EAGAIN:
@@ -406,66 +313,19 @@ class Master:
         Master.pending_disconnects = 0
         print(f"Adjusted subscribers: {Master.no_of_subscribers}")
 
-
-    # def send_data(self, json_data):
-    #     try:
-    #         # Convert the geometry data to JSON string
-    #         message = json_data
-    #         self.pub_socket.send_string(json.dumps(message))
-    #         # print(message)
-
-    #         print(f"Sent {message.get('command')}")
-            
-    #         # Wait for acknowledgment
-    #         ack = self.sync_socket.recv_string()
-    #         self.sync_socket.send_string("Next")
-            
-    #         return True
-    #     except Exception as e:
-    #         print(f"Error sending {message.get('command')}: {e}")
-    #         return False
-
-    # def pass_baton(self):
-    #     try:
-    #         # Send a baton message to all subscribers
-    #         baton_message = json.dumps({"command": "BATON"})
-    #         self.pub_socket.send_string(baton_message)
-    #         print("Baton passed")
-            
-    #         # Wait for acknowledgment
-    #         ack = self.sync_socket.recv_string()
-    #         self.sync_socket.send_string("Baton acknowledged")
-            
-    #         return True
-            
-    #     except Exception as e:
-    #         print(f"Error passing baton: {e}")
-    #         return False
-        
-    # def send_termination_signal(self):
-    #     try:
-    #         # Send special termination message
-    #         termination_message = json.dumps({"command": "TERMINATE"})
-    #         self.pub_socket.send_string(termination_message)
-            
-    #         # # Wait for final acknowledgment
-    #         # ack = self.sync_socket.recv_string()
-    #         # self.sync_socket.send_string("Terminate")
-    #         # print("Termination signal sent and acknowledged")
-            
-    #     except Exception as e:
-    #         print(f"Error sending termination signal: {e}")
-            
-    # def close(self):
-    #     try:
-    #         self.send_termination_signal()
-    #         time.sleep(1)  # Give time for the signal to be processed
-    #         self.pub_socket.close()
-    #         self.sync_socket.close()
-    #         self.context.term()
-            
-    #     except Exception as e:
-    #         print(f"Error during close: {e}")
+    def close(self):
+        """Close all sockets and terminate the context."""
+        try:
+            self.pub_socket.setsockopt(zmq.LINGER, 0)
+            self.pub_socket.close()
+            self.sync_socket.setsockopt(zmq.LINGER, 0)
+            self.sync_socket.close()
+            self.hb_socket.setsockopt(zmq.LINGER, 0)
+            self.hb_socket.close()
+            self.context.term()
+            print("Master sockets closed.")
+        except Exception as e:
+            print(f"Error during master cleanup: {e}")
 
 
 class Subscriber:
@@ -476,7 +336,7 @@ class Subscriber:
         self.sub_socket.setsockopt_string(zmq.SUBSCRIBE, "")
         self.sync_socket = self.context.socket(zmq.REQ)
         self.sync_socket.connect(f"tcp://127.0.0.1:{sync_port}")
-        self.sync_socket.setsockopt(zmq.RCVTIMEO, 10000)  # 2-second receive timeout
+        self.sync_socket.setsockopt(zmq.RCVTIMEO, 10000)  # 10-second receive timeout
         self.running = True
         self.uuid = str(uuid.uuid4())  # Unique identifier for this subscriber
 
@@ -536,28 +396,7 @@ class Subscriber:
         print("All retries failed. Attempting to reset sync socket...")
         self.reset_sync_socket()
         return False
-    
 
-    # def send_conflict(self, occupancy_grid):
-
-    #     #try:
-    #         # Send 'CONFLICT' message
-    #         self.sync_socket.send(b"CONFLICT")
-    #         print("Conflict message sent, waiting for master response...")
-    #         # Wait for master to be ready (optional, depending on your protocol)
-    #         # Send two pickle files as bytes
-    #         reply = self.sync_socket.recv()
-    #         print(f"Received reply: {reply}")
-    #         if reply == b"SEND_GRIDS":
-    #             self.sync_socket.send_pyobj(occupancy_grid)
-    #         # Wait for response
-    #         reply = self.sync_socket.recv()
-    #         if reply == b"CONFLICT_SOLVED":
-    #             print("Master solved the problem with the provided pickle files.")
-    #     # except Exception as e:
-    #     #     print(f"Error sending conflict: {e}")
-    #     #     self.reset_sync_socket()
-    
     def send_conflict(self, occupancy_grid):
         print("Sending conflict message with retry logic...")
         max_retries = 3
@@ -565,35 +404,30 @@ class Subscriber:
 
         for attempt in range(max_retries):
             try:
-                self.sync_socket.send(b"CONFLICT_DETECTION")
+                # Send multipart message: command + pickled data
+                self.sync_socket.send_multipart([
+                    b"CONFLICT_DETECTION",
+                    pickle.dumps((self.uuid, occupancy_grid))
+                ])
                 print("Conflict message sent, waiting for master response...")
 
                 if self.sync_socket.poll(5000):
                     reply = self.sync_socket.recv()
                     print(f"Received reply: {reply}")
 
-                    if reply == b"SEND_GRID":
-                        self.sync_socket.send_pyobj((self.uuid,occupancy_grid))
-
-                        if self.sync_socket.poll(5000):
-                            reply = self.sync_socket.recv()
-                            print(f"Received reply: {reply}")
-                            if reply == b"GRID_RECEIVED":
-                                print("Master acknowledged the grid.")
-                                return True
-                            else:
-                                print("Unexpected reply after sending grid, retrying...")
-                        else:
-                            print("No response after sending occupancy grid, retrying...")
-                    elif reply == b"WAIT":
-                        print("Master not ready, will retry after backoff...")
+                    if reply == b"GRID_RECEIVED":
+                        print("Master acknowledged the grid.")
+                        return True
+                    elif reply == b"ERROR_MISSING_DATA":
+                        print("Master reported missing data error, retrying...")
                         time.sleep(backoff)
                         backoff *= 2
-                        continue  # Retry protocol
+                        continue
                     else:
                         print("Unexpected reply from master, retrying...")
                 else:
                     print("No response from master, retrying...")
+                    
             except zmq.ZMQError as e:
                 print(f"Attempt {attempt + 1} failed: {e}")
                 time.sleep(backoff)
@@ -644,7 +478,7 @@ class Subscriber:
                 self.context = zmq.Context()
                 
             self.sync_socket = self.context.socket(zmq.REQ)
-            self.sync_socket.setsockopt(zmq.RCVTIMEO, 2000)
+            self.sync_socket.setsockopt(zmq.RCVTIMEO, 10000)
             self.sync_socket.connect(f"tcp://127.0.0.1:5556")
             print("Sync socket reset successfully.")
         except Exception as e:
@@ -667,28 +501,6 @@ class Subscriber:
         except Exception as e:
             print(f"Error during subscriber cleanup: {e}")
 
-    # def send_termination_signal(self):
-    #     try:
-    #         # Send termination signal to master
-    #         self.sync_socket.send_string("TERMINATE")
-    #         response = self.sync_socket.recv_string()
-    #         print(f"Received response from master: {response}")
-    #         self.termination_event.set()  # Signal to stop receiving messages
-    #         self.running = False
-    #     except Exception as e:
-    #         print(f"Error sending termination signal: {e}")
-    # def close(self):
-    #     try:
-    #         self.send_termination_signal()
-    #         time.sleep(1)  # Give time for the signal to be processed
-    #         self.sub_socket.close()
-    #         self.sync_socket.close()
-    #         self.context.term()
-    #         Master.no_of_subscribers -= 1
-    #         print(f"Subscriber disconnected. Remaining subscribers: {Master.no_of_subscribers}")
-    #     except Exception as e:
-    #         print(f"Error during close: {e}")
-
 
 # Example usage:
 if __name__ == "__main__":
@@ -705,36 +517,24 @@ if __name__ == "__main__":
     client.set_timeout(10.0)
     world = client.get_world()
 
-    while True:
-        world.tick()
-        print("CARLA world ticked")
-        print(master.no_of_subscribers)
-        master.broadcast_tick()
-        # Check for visualization commands from the background thread
-        try:
-            while not master.visualization_queue.empty():
-                cmd = master.visualization_queue.get_nowait()
-                if cmd == "stop":
-                    master.oc.stop_visualization()
-        except Exception as e:
-            print(f"Error handling visualization command: {e}")
-        time.sleep(0.1)
-        master.broadcast_tick()
-        time.sleep(0.1)
-    #subscriber = Subscriber()
-
-    # # Simulate sending data
-    # for i in range(5):
-    #     master.broadcast_tick()
-    # # Simulate receiving messages
-    #     #subscriber.receive_messages()
-    #     time.sleep(1)
-
-    # # Broadcast tick
-    # master.broadcast_tick()
-
-    # Close connections
-    #subscriber.close()
-    master.close()
-
-
+    try:
+        while True:
+            world.tick()
+            print("CARLA world ticked")
+            print(master.no_of_subscribers)
+            master.broadcast_tick()
+            # Check for visualization commands from the background thread
+            try:
+                while not master.visualization_queue.empty():
+                    cmd = master.visualization_queue.get_nowait()
+                    if cmd == "stop":
+                        master.oc.stop_visualization()
+            except Exception as e:
+                print(f"Error handling visualization command: {e}")
+            time.sleep(0.1)
+            master.broadcast_tick()
+            time.sleep(0.1)
+    except KeyboardInterrupt:
+        print("Shutting down...")
+    finally:
+        master.close()
