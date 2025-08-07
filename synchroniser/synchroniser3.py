@@ -551,9 +551,9 @@ if __name__ == "__main__":
                         master.oc.stop_visualization()
             except Exception as e:
                 print(f"Error handling visualization command: {e}")
-            time.sleep(0.1)
-            master.broadcast_tick()
-            time.sleep(0.1)
+            #time.sleep(0.01)
+            #master.broadcast_tick()
+            time.sleep(0.01)
     except KeyboardInterrupt:
         print("Shutting down...")
     finally:
