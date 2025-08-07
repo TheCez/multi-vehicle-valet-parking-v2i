@@ -62,6 +62,7 @@ def solve_conflict(conflict_area):
                     elif val == 5:
                         five_count += 1
             if zero_or_two_count == 2 and five_count == 4:
+                conflict_area[row, col] = 3
                 waypoint = (row, col)
         conflict_area[(conflict_area == -4) | (conflict_area == 5)] = 0
         

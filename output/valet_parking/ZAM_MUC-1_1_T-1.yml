@@ -22,8 +22,8 @@ planning:
   coordinate_system: CART
   dt: 0.1
   o_initial: 1.5707525177949648
-  p_lat_initial: -54.365848541259766
-  p_lon_initial: 25.999967575073242
+  p_lat_initial: -52.31038284301758
+  p_lon_initial: 25.999969482421875
   reference_point: CENTER
   step_start: 0
   steps_computation: 12

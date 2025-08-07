@@ -175,6 +175,7 @@ class Master:
                             visualization_grid = np.empty(grid_shape, dtype=first_grid.dtype)
                             temp_grid = np.empty(grid_shape, dtype=object)
                             temp_grid_visualization = np.empty(grid_shape, dtype=first_grid.dtype)
+                            visualization_grid_view = np.empty(grid_shape, dtype=first_grid.dtype)
                             top_left = None
                             top_right = None
                             bottom_left = None
@@ -183,6 +184,7 @@ class Master:
                             # Copy the first grid as the base
                             merged_grid[:] = first_grid
                             visualization_grid[:] = first_grid
+                            visualization_grid_view[:] = first_grid
                             temp_grid.fill(0)
                             temp_grid_visualization.fill(0)
                             conflict = False
@@ -236,6 +238,23 @@ class Master:
                                     if merged_grid[idx] != value:
                                         merged_grid[idx] = [merged_grid[idx], value]
                                         visualization_grid[idx] = max(visualization_grid[idx], value)
+                                        #visualization_grid_view[idx] = max(visualization_grid_view[idx], value)
+                                        # Use visualization_grid_view for value selection
+                                        if visualization_grid_view[idx] == -2 or value == -2:
+                                            visualization_grid_view[idx] = -2
+                                        elif visualization_grid_view[idx] == -4 or value == -4:
+                                            visualization_grid_view[idx] = -4
+                                        elif visualization_grid_view[idx] == 5 or value == 5:
+                                            visualization_grid_view[idx] = 5
+                                        elif visualization_grid_view[idx] == 4 or value == 4:
+                                            visualization_grid_view[idx] = 4
+                                        elif visualization_grid_view[idx] == 3 or value == 3:
+                                            visualization_grid_view[idx] = 3
+                                        elif visualization_grid_view[idx] == 2 or value == 2:
+                                            visualization_grid_view[idx] = 2
+                                        elif visualization_grid_view[idx] == 1 or value == 1:
+                                            visualization_grid_view[idx] = 1
+
                                     # else: values are the same, do nothing
                             
                             # If there was a conflict
@@ -292,9 +311,10 @@ class Master:
                                 
                             if len(occupancy_grids) == 1:
                                 print("Only one occupancy grid received, no conflicts to resolve.")
-                                self.oc.update_visualization2(current_grid=visualization_grid)
+                                self.oc.update_visualization2(current_grid=visualization_grid_view)
                             else:
-                                self.oc.update_visualization2(current_grid=temp_grid_visualization)
+                                self.oc.update_visualization2(current_grid=visualization_grid_view)
+                                #self.oc.update_visualization2(current_grid=temp_grid_visualization)
 
                             print("Merged grid saved to output_occupancy_grids/merged_grid.npy")
                             print("All conflicts resolved! Merging occupancy grids...")

@@ -955,7 +955,8 @@ def game_loop(args):
                                         grid_y = int(np.ceil(gy))
                                     else:
                                         grid_y = int(np.floor(gy))
-                                    test_reach_occupancygrid[grid_y, grid_x] = -2
+                                    if test_reach_occupancygrid[grid_y, grid_x] != 2:
+                                        test_reach_occupancygrid[grid_y, grid_x] = -2
                         except Exception as e:
                             print("Error marking path from car to goal:", e)
                     

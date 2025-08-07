@@ -772,7 +772,7 @@ def follow_path_with_pid(vehicle, path, speed=20):
         yield control
 
         # Advance to next point if close enough
-        if vehicle.get_location().distance(target_location) < 1.0:
+        if vehicle.get_location().distance(target_location) < 5.0:
             index += 1
 
 
@@ -953,6 +953,11 @@ def game_loop(args):
 
         path = hybrid_astar.path_finder(player_x, player_y, player_yaw, destination_x, destination_y, destination_yaw, grid_map)
 
+        os.makedirs("path_test", exist_ok=True)
+        # with open(os.path.join("path_test", "path.txt"), "w") as f:
+        #     for x, y in zip(path.x, path.y):
+        #         f.write(f"({x} ,{y})\n")
+
         # # Convert grid coordinates to world coordinates for the reference path
         # grid_size = 500  # Should match the value used in follow_path_with_pid
         # center = grid_size // 2
@@ -1030,41 +1035,29 @@ def game_loop(args):
                 test_reach_occupancygrid = reach_occupancygrid.copy().astype(np.int8)
                 # Mark the path in the occupancy grid as -2
                 path_copy = copy.deepcopy(path)
-                for gx, gy in zip(path_copy.x, path_copy.y):
-                    # print("gx, gy:", gx, gy)
-                    # Only mark the path from the car's current grid position (car_box_index) to the end goal
-                    if car_box_index is not None and len(path_copy.x) > 0:
-                        try:
-                            # Find the index in the path closest to the car's grid position
-                            #print("car_box_index:", car_box_index)
-                            # car_box_index is a list of (x, y) tuples representing the car's bounding box in the grid
-                            # To determine the front side, find the point in car_box_index closest to the first path point (car is heading toward path[0])
-                            # or, if the car is following the path, use the closest to the current path segment
+                if car_box_index is not None and len(path_copy.x) > 0:
+                    try:
+                        # Find the front-most point of the car (in the direction of the path)
+                        path_head = np.array([path_copy.x[0], path_copy.y[0]])
+                        car_box_array = np.array(car_box_index)
+                        # Find which car box point is furthest along the direction to the path head
+                        dists_to_path_head = np.linalg.norm(car_box_array - path_head, axis=1)
+                        front_idx = int(np.argmin(dists_to_path_head))
+                        car_gx, car_gy = car_box_index[front_idx]
 
-                            # Use the first point in the path as the direction reference
-                            path_head = np.array([path_copy.x[0], path_copy.y[0]])
-                            # Find the car_box_index point closest to the path head
-                            car_box_array = np.array(car_box_index)
-                            dists_to_path_head = np.linalg.norm(car_box_array - path_head, axis=1)
-                            front_idx = int(np.argmin(dists_to_path_head))
-                            car_gx, car_gy = car_box_index[front_idx]
+                        # Find the closest path point to the front of the car
+                        dists = [(gx - car_gx) ** 2 + (gy - car_gy) ** 2 for gx, gy in zip(path_copy.x, path_copy.y)]
+                        start_idx = int(np.argmin(dists))
 
-                            dists = [(gx - car_gx) ** 2 + (gy - car_gy) ** 2 for gx, gy in zip(path_copy.x, path_copy.y)]
-                            start_idx = int(np.argmin(dists))
-                            # Only mark from car position to the end of the path
-                            for gx, gy in zip(path_copy.x[start_idx:], path_copy.y[start_idx:]):
-                                if 0 <= gx < reach_occupancygrid.shape[0] and 0 <= gy < reach_occupancygrid.shape[1]:
-                                    if gx % 1 > 0.5:
-                                        grid_x = int(np.ceil(gx))
-                                    else:
-                                        grid_x = int(np.floor(gx))
-                                    if gy % 1 > 0.5:
-                                        grid_y = int(np.ceil(gy))
-                                    else:
-                                        grid_y = int(np.floor(gy))
+                        # Mark the path from the front of the car to the goal
+                        for gx, gy in zip(path_copy.x[start_idx:], path_copy.y[start_idx:]):
+                            if 0 <= gx < reach_occupancygrid.shape[0] and 0 <= gy < reach_occupancygrid.shape[1]:
+                                grid_x = int(round(gx))
+                                grid_y = int(round(gy))
+                                if test_reach_occupancygrid[grid_y, grid_x] != 2:  # Avoid overwriting existing path
                                     test_reach_occupancygrid[grid_y, grid_x] = -2
-                        except Exception as e:
-                            print("Error marking path from car to goal:", e)
+                    except Exception as e:
+                        print("Error marking path from car front to goal:", e)
 
                 sent = subscriber.send_conflict(test_reach_occupancygrid)
 
@@ -1158,6 +1151,11 @@ def game_loop(args):
                             path.x = stitched_x
                             path.y = stitched_y
 
+                            # with open(os.path.join("path_test", "path2.txt"), "w") as f:
+                            #     for x, y in zip(path.x, path.y):
+                            #         f.write(f"({x} ,{y})\n")
+                            # break
+
                             # os.makedirs("path_test", exist_ok=True)
                             # np.save(os.path.join("path_test", "path_x.npy"), np.array(path.x))
                             # np.save(os.path.join("path_test", "path_y.npy"), np.array(path.y))
@@ -1185,6 +1183,10 @@ def game_loop(args):
                             sigma = 2  # Adjust sigma for more/less smoothing
                             path.x = gaussian_filter1d(path.x, sigma)
                             path.y = gaussian_filter1d(path.y, sigma)
+                            # with open(os.path.join("path_test", "path3.txt"), "w") as f:
+                            #     for x, y in zip(path.x, path.y):
+                            #         f.write(f"({x} ,{y})\n")
+                            # break
 
                             path_follower = follow_path_with_pid(world.player, new_path, speed=6.5)
                             # print("Stitched path (x, y) combo:")
