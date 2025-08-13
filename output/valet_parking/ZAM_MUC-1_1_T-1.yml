@@ -21,9 +21,9 @@ name_scenario: valet_parking
 planning:
   coordinate_system: CART
   dt: 0.1
-  o_initial: 1.570842000007591
-  p_lat_initial: -43.4891242980957
-  p_lon_initial: 26.00003433227539
+  o_initial: -1.3791812205734229
+  p_lat_initial: -55.21043014526367
+  p_lon_initial: 22.801891326904297
   reference_point: CENTER
   step_start: 0
   steps_computation: 6
@@ -31,8 +31,8 @@ planning:
   uncertainty_p_lon: 0.01
   uncertainty_v_lat: 0.01
   uncertainty_v_lon: 0.01
-  v_lat_initial: 9.999999989569787
-  v_lon_initial: -0.00045673212678611877
+  v_lat_initial: -9.816979272614413
+  v_lon_initial: 1.9044468911101124
 reachable_set:
   consider_traffic: true
   exclude_small_components_corridor: false
@@ -90,4 +90,3 @@ vehicle:
     wb_rear_axle: 1.4227170936
     wheelbase: 2.5789128
     width: 1.61
-

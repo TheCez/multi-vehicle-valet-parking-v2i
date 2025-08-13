@@ -1149,32 +1149,40 @@ def game_loop(args):
                         player_y = player_transform.location.y
                         player_yaw = math.radians(player_transform.rotation.yaw)
                         #destination_transform = carla.Transform(destination, world.player.get_transform().rotation)
-                        destination_x = new_path_point[1]
-                        destination_y = new_path_point[0]
+                        destination_x = real_path_point[0]
+                        destination_y = real_path_point[1]
                         #destination_yaw = math.radians(player_transform.rotation.yaw)
                         # Expand the conflict_area to a square grid along its longest axis, fill new cells with 1
                         small_grid, padding = round_off_grid(conflict_area)
-                        
 
+                        print("Control side: player_x, player_ y, destination_x, destination_y:", player_x, player_y, destination_x, destination_y)
 
                         print("Control side: player_x, player_y, player_yaw:", test_x-conflict_area_bounds['min_col']+padding['pad_x'], test_y-conflict_area_bounds['min_row']+padding['pad_y'], player_yaw)
                         print("Control side: destination_x, destination_y, destination_yaw:", destination_x+padding['pad_x'], destination_y+padding['pad_y'], destination_yaw)
 
-                        # Increment destination_y by 10, but ensure it doesn't exceed the conflict area bounds
-                        new_destination_y = destination_y
-                        # max_y = conflict_area_bounds['max_row'] + padding['pad_y']
-                        # min_y = conflict_area_bounds['min_row'] + padding['pad_y']
-                        # # Clamp new_destination_y within bounds
-                        # new_destination_y = max(min_y, min(new_destination_y, max_y))
+                        # # Increment destination_y by 10, but ensure it doesn't exceed the conflict area bounds
+                        # new_destination_y = destination_y
+                        # # max_y = conflict_area_bounds['max_row'] + padding['pad_y']
+                        # # min_y = conflict_area_bounds['min_row'] + padding['pad_y']
+                        # # # Clamp new_destination_y within bounds
+                        # # new_destination_y = max(min_y, min(new_destination_y, max_y))
 
-                        # Compare with the final path point; if new_destination_y is beyond, use the final path point
-                        #final_path_y = path.y[-1] if path is not None  else new_destination_y
-                        if new_destination_y > path.y[-1]:
-                            new_destination_y = path.y[-1] + padding['pad_y'] - conflict_area_bounds['min_row']
-                            destination_x = path.x[-1] + padding['pad_x'] - conflict_area_bounds['min_col']
+                        # # Compare with the final path point; if new_destination_y is beyond, use the final path point
+                        # #final_path_y = path.y[-1] if path is not None  else new_destination_y
+                        # if new_destination_y > path.y[-1]:
+                        #     new_destination_y = path.y[-1] + padding['pad_y'] - conflict_area_bounds['min_row']
+                        #     destination_x = path.x[-1] + padding['pad_x'] - conflict_area_bounds['min_col']
+
+                        #player_y = player_y
+                        new_destination_y = destination_y + 5
+                        #player_idx, player_point = closest_point_on_path(path, (player_x, player_y))
+                        new_destination_idx, new_destination_point= closest_point_on_path(path, (destination_x, new_destination_y))
+
+                        destination_x = new_destination_point[0] - conflict_area_bounds['min_col']
+                        new_destination_y = new_destination_point[1] - conflict_area_bounds['min_row']
 
                         updated_path = hybrid_astar.short_path_finder(
-                            player_x, player_y, destination_yaw,#player_yaw,
+                            player_x, player_y+2, destination_yaw,#player_yaw,
                             destination_x, new_destination_y, destination_yaw,
                             small_grid, conflict_area_bounds['min_col'], conflict_area_bounds['min_row'],
                             padding['pad_x'], padding['pad_y']
@@ -1293,28 +1301,38 @@ def game_loop(args):
                     else:
                         print("Control side: No Conflict detected, proceeding with the path")
                         if conflict:
+                            player_transform = world.player.get_transform()
                             player_x = player_transform.location.x
                             player_y = player_transform.location.y
                             player_yaw = math.radians(player_transform.rotation.yaw)
-                            destination_x = path.x[-1] - conflict_area_bounds['min_col']
-                            destination_y = path.y[-1] - conflict_area_bounds['min_row']
-                            last_destination = (path.x[-1], path.y[-1])
+                            #destination_x = path.x[-1] - conflict_area_bounds['min_col']
+                            #destination_y = path.y[-1] - conflict_area_bounds['min_row']
+                            #last_destination = (path.x[-1], path.y[-1])
                             # Send world.player coordinates and yaw to hybrid_astar
                             updated_path = hybrid_astar.short_path_finder(
-                            player_x, player_y+2, destination_yaw,#player_yaw,
-                            int(destination_x), int(destination_y)-5, destination_yaw,
+                            player_x, player_y+2,destination_yaw,#player_yaw,
+                            destination_x, new_destination_y, destination_yaw,
                             small_grid, conflict_area_bounds['min_col'], conflict_area_bounds['min_row'],
                             padding['pad_x'], padding['pad_y']
                             )
                             if updated_path is not None:
                                 new_path = stitch_paths(path, updated_path, conflict_area_bounds, padding)
                             # Add the last destination to the path after conflict resolution
-                            if last_destination is not None:
-                                np.append(path.x, last_destination[0])
-                                np.append(path.y, last_destination[1])
+                            # if last_destination is not None:
+                            #     np.append(path.x, last_destination[0])
+                            #     np.append(path.y, last_destination[1])
+                            else:
+                                print('No new path found after conflict resolution')
 
                             path_follower = follow_path_with_pid(world.player, new_path, speed=6)
                             print("Calculated final path after conflict resolution")
+                            player_x, player_y = hybrid_astar.world_to_grid(player_x, player_y, 500 // 2, 0.5)
+                            player_x = player_x - conflict_area_bounds['min_col']
+                            player_y = player_y - conflict_area_bounds['min_row']
+
+                            # if player_y > new_destination_y:
+                            #     print("Control side: player_x, player_y after conflict resolution:", player_y, new_destination_y)
+                                #break
                             conflict = False
 
 
