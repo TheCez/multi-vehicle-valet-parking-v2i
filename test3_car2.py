@@ -71,7 +71,7 @@ from PyQt6.QtWidgets import QApplication
 from mp_visualizer.CommonRoadVisualizer import CommonRoadVisualizer
 from PyQt6.QtCore import QTimer
 from VisualizationThread import VisualizationThread
-from synchroniser.synchroniser3 import Subscriber
+from synchroniser.synchroniser4 import Subscriber
 import time
 from occupation_grid.occupation_grid_with_grid_generator.occupation_grid import OccupationGrid
 from hybid_a_star_agent.MotionPlanning.HybridAstarPlanner import hybrid_astar
@@ -788,6 +788,8 @@ def closest_point_on_path(path, new_path_point):
     min_distance = float('inf')
     closest_index = -1
     closest_point = None
+    print("Finding closest point on path to:", new_path_point)
+
 
     for i, (x, y) in enumerate(zip(path.x, path.y)):
         distance = math.sqrt((x - new_path_point[0]) ** 2 + (y - new_path_point[1]) ** 2)
@@ -865,37 +867,6 @@ def round_off_grid(conflict_area):
     }
 
     return conflict_area_expanded, padding
-
-def stitch_paths(path, updated_path, conflict_area_bounds, padding):
-    """
-    Stitch the updated_path into the original path using global coordinates.
-    Smooth the result with a Gaussian filter.
-    Returns the stitched and smoothed path object.
-    """
-    updated_path_x_global = [x - padding['pad_x'] + conflict_area_bounds['min_col'] for x in updated_path.x]
-    updated_path_y_global = [y - padding['pad_y'] + conflict_area_bounds['min_row'] for y in updated_path.y]
-
-    # Find closest points on original path to start and end of updated_path
-    start_idx, start_pt = closest_point_on_path(path, (updated_path_x_global[0], updated_path_y_global[0]))
-    end_idx, end_pt = closest_point_on_path(path, (updated_path_x_global[-1], updated_path_y_global[-1]))
-
-    # Stitch the new path: remove everything before start_idx, add updated_path, then everything after end_idx
-    stitched_x = list(updated_path_x_global) + list(path.x[end_idx+1:])
-    stitched_y = list(updated_path_y_global) + list(path.y[end_idx+1:])
-
-    # Make a copy of path before modifying
-    new_path = copy.deepcopy(path)
-
-    # Replace path.x and path.y with the stitched path
-    new_path.x = stitched_x
-    new_path.y = stitched_y
-
-    # Smooth the path using a Gaussian filter
-    sigma = 2  # Adjust sigma for more/less smoothing
-    new_path.x = gaussian_filter1d(new_path.x, sigma)
-    new_path.y = gaussian_filter1d(new_path.y, sigma)
-
-    return new_path
 
 
 # ==============================================================================
@@ -985,9 +956,9 @@ def game_loop(args):
         path = hybrid_astar.path_finder(player_x, player_y, player_yaw, destination_x, destination_y, destination_yaw, grid_map)
 
         os.makedirs("path_test", exist_ok=True)
-        # with open(os.path.join("path_test", "path.txt"), "w") as f:
-        #     for x, y in zip(path.x, path.y):
-        #         f.write(f"({x} ,{y})\n")
+        with open(os.path.join("path_test", "path.txt"), "w") as f:
+            for x, y in zip(path.x, path.y):
+                f.write(f"({x} ,{y})\n")
 
         # # Convert grid coordinates to world coordinates for the reference path
         # grid_size = 500  # Should match the value used in follow_path_with_pid
@@ -1010,7 +981,6 @@ def game_loop(args):
         # Initialize path follower
         path_follower = follow_path_with_pid(world.player, path, speed=6.5)
         clock = pygame.time.Clock()
-        conflict = False
 
         #test = CommonRoadSceneGenerator()
         #test.run()
@@ -1066,11 +1036,10 @@ def game_loop(args):
                 reach_occupancygrid, car_box_index = occupationgrid.generate_occupation_grid(world.player, polygons)
                 test_reach_occupancygrid = reach_occupancygrid.copy().astype(np.int8)
                 # Mark the path in the occupancy grid as -2
-                path_copy = copy.deepcopy(path)
-                if car_box_index is not None and len(path_copy.x) > 0:
+                if car_box_index is not None and len(path.x) > 0:
                     try:
                         # Find the front-most point of the car (in the direction of the path)
-                        path_head = np.array([path_copy.x[0], path_copy.y[0]])
+                        path_head = np.array([path.x[0], path.y[0]])
                         car_box_array = np.array(car_box_index)
                         # Find which car box point is furthest along the direction to the path head
                         dists_to_path_head = np.linalg.norm(car_box_array - path_head, axis=1)
@@ -1078,16 +1047,16 @@ def game_loop(args):
                         car_gx, car_gy = car_box_index[front_idx]
 
                         # Find the closest path point to the front of the car
-                        dists = [(gx - car_gx) ** 2 + (gy - car_gy) ** 2 for gx, gy in zip(path_copy.x, path_copy.y)]
+                        dists = [(gx - car_gx) ** 2 + (gy - car_gy) ** 2 for gx, gy in zip(path.x, path.y)]
                         start_idx = int(np.argmin(dists))
 
                         # Mark the path from the front of the car to the goal
-                        for gx, gy in zip(path_copy.x[start_idx:], path_copy.y[start_idx:]):
+                        for gx, gy in zip(path.x[start_idx:], path.y[start_idx:]):
                             if 0 <= gx < reach_occupancygrid.shape[0] and 0 <= gy < reach_occupancygrid.shape[1]:
                                 grid_x = int(round(gx))
                                 grid_y = int(round(gy))
-                                if test_reach_occupancygrid[grid_y, grid_x] != 2:  # Avoid overwriting existing path
-                                    test_reach_occupancygrid[grid_y, grid_x] = -2
+                                #if test_reach_occupancygrid[grid_y, grid_x] != 2:  # Avoid overwriting existing path
+                                test_reach_occupancygrid[grid_y, grid_x] = -2
                     except Exception as e:
                         print("Error marking path from car front to goal:", e)
 
@@ -1097,7 +1066,6 @@ def game_loop(args):
                     print("Conflict sent to subscriber")
                     final_occupancy_grid = subscriber.receive_solution()
                     if final_occupancy_grid is not None:
-                        conflict = True
                         print("Received final occupancy grid from subscriber")
                         conflict_area = final_occupancy_grid['conflict_area']
                         new_path_point = final_occupancy_grid['new_path_point']
@@ -1106,24 +1074,28 @@ def game_loop(args):
 
                         # Send world.player coordinates and yaw to hybrid_astar
                         player_transform = world.player.get_transform()
-                        test_x, test_y =hybrid_astar.world_to_grid(player_transform.location.x, player_transform.location.y, 500 // 2, 0.5)
-                        player_x = player_transform.location.x
-                        player_y = player_transform.location.y
+                        player_x, player_y =hybrid_astar.world_to_grid(player_transform.location.x, player_transform.location.y, 500 // 2, 0.5)
+                        print("Control side: real_player_x, real_player_y:", player_x, player_y)
+                        #player_x = player_transform.location.x
+                        #player_y = player_transform.location.y
                         player_yaw = math.radians(player_transform.rotation.yaw)
                         #destination_transform = carla.Transform(destination, world.player.get_transform().rotation)
-                        destination_x = new_path_point[1]
-                        destination_y = new_path_point[0]
+                        destination_x = real_path_point[1]
+                        destination_y = real_path_point[0]
                         #destination_yaw = math.radians(player_transform.rotation.yaw)
                         # Expand the conflict_area to a square grid along its longest axis, fill new cells with 1
                         small_grid, padding = round_off_grid(conflict_area)
                         
 
 
-                        print("Control side: player_x, player_y, player_yaw:", test_x-conflict_area_bounds['min_col']+padding['pad_x'], test_y-conflict_area_bounds['min_row']+padding['pad_y'], player_yaw)
+                        #print("Control side: player_x, player_y, player_yaw:", test_x-conflict_area_bounds['min_col']+padding['pad_x'], test_y-conflict_area_bounds['min_row']+padding['pad_y'], player_yaw)
                         print("Control side: destination_x, destination_y, destination_yaw:", destination_x+padding['pad_x'], destination_y+padding['pad_y'], destination_yaw)
 
                         # Increment destination_y by 10, but ensure it doesn't exceed the conflict area bounds
-                        new_destination_y = destination_y
+                        player_y = player_y
+                        new_destination_y = destination_y + 10
+                        player_idx, player_point = closest_point_on_path(path, (player_x, player_y))
+                        new_destination_idx, new_destination_point= closest_point_on_path(path, (destination_x, new_destination_y))
                         # max_y = conflict_area_bounds['max_row'] + padding['pad_y']
                         # min_y = conflict_area_bounds['min_row'] + padding['pad_y']
                         # # Clamp new_destination_y within bounds
@@ -1131,13 +1103,13 @@ def game_loop(args):
 
                         # Compare with the final path point; if new_destination_y is beyond, use the final path point
                         #final_path_y = path.y[-1] if path is not None  else new_destination_y
-                        if new_destination_y > path.y[-1]:
-                            new_destination_y = path.y[-1] + padding['pad_y'] - conflict_area_bounds['min_row']
-                            destination_x = path.x[-1] + padding['pad_x'] - conflict_area_bounds['min_col']
+                        # if new_destination_y > path.y[-1]:
+                        #     new_destination_y = path.y[-1] + padding['pad_y'] - conflict_area_bounds['min_row']
+                        #     destination_x = path.x[-1] + padding['pad_x'] - conflict_area_bounds['min_col']
 
-                        updated_path = hybrid_astar.short_path_finder(
-                            player_x, player_y, destination_yaw,#player_yaw,
-                            destination_x, new_destination_y, destination_yaw,
+                        updated_path = hybrid_astar.short_path_finder2(
+                            player_point[0], player_point[1], player_yaw,
+                            new_destination_point[0], new_destination_point[1], destination_yaw,
                             small_grid, conflict_area_bounds['min_col'], conflict_area_bounds['min_row'],
                             padding['pad_x'], padding['pad_y']
                         )
@@ -1149,6 +1121,7 @@ def game_loop(args):
                         print("Control side: new_path_point : ", new_path_point)
                         print("Control side: conflict_area_bounds : ", conflict_area_bounds)
                         print("Control side: waypoint to real grid: ", real_path_point)
+                        print("Control side: player_x, player_y, player_yaw:", player_x, player_y, player_yaw)
                         
                         # print("Updated path x:", updated_path.x)
                         # print("Updated path y:", updated_path.y)
@@ -1163,67 +1136,65 @@ def game_loop(args):
                         
 
                         if updated_path is not None:
-                            path = stitch_paths(path, updated_path, conflict_area_bounds, padding)
+                            updated_path_x_global = [x - padding['pad_x'] + conflict_area_bounds['min_col'] for x in updated_path.x]
+                            updated_path_y_global = [y - padding['pad_y'] + conflict_area_bounds['min_row'] for y in updated_path.y]
 
-                            #######################################################################################################################
-                            # updated_path_x_global = [x - padding['pad_x'] + conflict_area_bounds['min_col'] for x in updated_path.x]
-                            # updated_path_y_global = [y - padding['pad_y'] + conflict_area_bounds['min_row'] for y in updated_path.y]
+                            # Find closest points on original path to start and end of updated_path
+                            print("Control side: updated_path_x_global:", updated_path_x_global[0])
+                            print("Control side: updated_path_y_global:", updated_path_y_global[0])
+                            start_idx, start_pt = closest_point_on_path(path, (updated_path_x_global[0], updated_path_y_global[0]))
+                            end_idx, end_pt = closest_point_on_path(path, (updated_path_x_global[-1], updated_path_y_global[-1]))
 
-                            # # Find closest points on original path to start and end of updated_path
-                            # start_idx, start_pt = closest_point_on_path(path, (updated_path_x_global[0], updated_path_y_global[0]))
-                            # end_idx, end_pt = closest_point_on_path(path, (updated_path_x_global[-1], updated_path_y_global[-1]))
+                            # Stitch the new path: remove everything before start_idx, add updated_path, then everything after end_idx
+                            stitched_x = list(updated_path_x_global) + list(path.x[end_idx+1:])
+                            stitched_y = list(updated_path_y_global) + list(path.y[end_idx+1:])
 
-                            # # Stitch the new path: remove everything before start_idx, add updated_path, then everything after end_idx
-                            # stitched_x = list(updated_path_x_global) + list(path.x[end_idx+1:])
-                            # stitched_y = list(updated_path_y_global) + list(path.y[end_idx+1:])
+                            # Make a copy of path before modifying
+                            new_path = copy.deepcopy(path)
 
-                            # # Make a copy of path before modifying
-                            # new_path = copy.deepcopy(path)
+                            # Replace path.x and path.y with the stitched path
+                            #new_path.x = stitched_x
+                            #new_path.y = stitched_y
 
-                            # # Replace path.x and path.y with the stitched path
-                            # #new_path.x = stitched_x
-                            # #new_path.y = stitched_y
+                            path.x = stitched_x
+                            path.y = stitched_y
 
-                            # path.x = stitched_x
-                            # path.y = stitched_y
+                            with open(os.path.join("path_test", "path2.txt"), "w") as f:
+                                for x, y in zip(path.x, path.y):
+                                    f.write(f"({x} ,{y})\n")
+                            #break
 
-                            # # with open(os.path.join("path_test", "path2.txt"), "w") as f:
-                            # #     for x, y in zip(path.x, path.y):
-                            # #         f.write(f"({x} ,{y})\n")
-                            # # break
+                            # os.makedirs("path_test", exist_ok=True)
+                            # np.save(os.path.join("path_test", "path_x.npy"), np.array(path.x))
+                            # np.save(os.path.join("path_test", "path_y.npy"), np.array(path.y))
+                            # break
 
-                            # # os.makedirs("path_test", exist_ok=True)
-                            # # np.save(os.path.join("path_test", "path_x.npy"), np.array(path.x))
-                            # # np.save(os.path.join("path_test", "path_y.npy"), np.array(path.y))
-                            # # break
+                            # # Smooth the stitched path using cubic spline interpolation
 
-                            # # # Smooth the stitched path using cubic spline interpolation
+                            # # Only smooth if there are enough points
+                            # if len(path.x) > 3 and len(path.y) > 3:
+                            #     # Parameterize by cumulative distance along the path
+                            #     points = np.array(list(zip(path.x, path.y)))
+                            #     distances = np.sqrt(np.sum(np.diff(points, axis=0)**2, axis=1))
+                            #     t = np.concatenate(([0], np.cumsum(distances)))
 
-                            # # # Only smooth if there are enough points
-                            # # if len(path.x) > 3 and len(path.y) > 3:
-                            # #     # Parameterize by cumulative distance along the path
-                            # #     points = np.array(list(zip(path.x, path.y)))
-                            # #     distances = np.sqrt(np.sum(np.diff(points, axis=0)**2, axis=1))
-                            # #     t = np.concatenate(([0], np.cumsum(distances)))
+                            #     # Interpolate with cubic spline
+                            #     cs_x = CubicSpline(t, path.x)
+                            #     cs_y = CubicSpline(t, path.y)
 
-                            # #     # Interpolate with cubic spline
-                            # #     cs_x = CubicSpline(t, path.x)
-                            # #     cs_y = CubicSpline(t, path.y)
+                            #     # Sample more points for smoothness
+                            #     t_new = np.linspace(0, t[-1], max(50, len(path.x)))
+                            #     path.x = cs_x(t_new).tolist()
+                            #     path.y = cs_y(t_new).tolist()
 
-                            # #     # Sample more points for smoothness
-                            # #     t_new = np.linspace(0, t[-1], max(50, len(path.x)))
-                            # #     path.x = cs_x(t_new).tolist()
-                            # #     path.y = cs_y(t_new).tolist()
-
-                            # # Smooth the path using a Gaussian filter
-                            # sigma = 2  # Adjust sigma for more/less smoothing
-                            # path.x = gaussian_filter1d(path.x, sigma)
-                            # path.y = gaussian_filter1d(path.y, sigma)
-                            # # with open(os.path.join("path_test", "path3.txt"), "w") as f:
-                            # #     for x, y in zip(path.x, path.y):
-                            # #         f.write(f"({x} ,{y})\n")
-                            # # break
-                            #####################################################################################################################################
+                            # Smooth the path using a Gaussian filter
+                            sigma = 2  # Adjust sigma for more/less smoothing
+                            path.x = gaussian_filter1d(path.x, sigma)
+                            path.y = gaussian_filter1d(path.y, sigma)
+                            with open(os.path.join("path_test", "path3.txt"), "w") as f:
+                                for x, y in zip(path.x, path.y):
+                                    f.write(f"({x} ,{y})\n")
+                            break
 
                             path_follower = follow_path_with_pid(world.player, path, speed=6.5)
                             # print("Stitched path (x, y) combo:")
@@ -1254,29 +1225,6 @@ def game_loop(args):
                         #print("control side: ", final_occupancy_grid.shape)
                     else:
                         print("Control side: No Conflict detected, proceeding with the path")
-                        if conflict:
-                            player_x = player_transform.location.x
-                            player_y = player_transform.location.y
-                            player_yaw = math.radians(player_transform.rotation.yaw)
-                            destination_x = path.x[-1] - conflict_area_bounds['min_col']
-                            destination_y = path.y[-1] - conflict_area_bounds['min_row']
-                            last_destination = (path.x[-1], path.y[-1])
-                            # Send world.player coordinates and yaw to hybrid_astar
-                            updated_path = hybrid_astar.short_path_finder(
-                            player_x, player_y, destination_yaw,#player_yaw,
-                            int(destination_x), int(destination_y)-5, destination_yaw,
-                            small_grid, conflict_area_bounds['min_col'], conflict_area_bounds['min_row'],
-                            padding['pad_x'], padding['pad_y']
-                            )
-                            path = stitch_paths(path, updated_path, conflict_area_bounds, padding)
-                            # Add the last destination to the path after conflict resolution
-                            if last_destination is not None:
-                                path.x.append(last_destination[0])
-                                path.y.append(last_destination[1])
-
-                            path_follower = follow_path_with_pid(world.player, path, speed=6.5)
-                            print("Calculated final path after conflict resolution")
-                            conflict = False
 
 
                 # if sent:
