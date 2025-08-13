@@ -241,6 +241,8 @@ class Master:
                                         
                                         if visualization_grid_view[idx] == -2 or value == -2:
                                             visualization_grid_view[idx] = -2
+                                        elif visualization_grid_view[idx] == 6 or value == 6:
+                                            visualization_grid_view[idx] = 6
                                         elif visualization_grid_view[idx] == -4 or value == -4:
                                             visualization_grid_view[idx] = -4
                                         elif visualization_grid_view[idx] == 4 or value == 4:
@@ -296,7 +298,14 @@ class Master:
 
                             
                                 
-                            self.oc.update_visualization2(current_grid=visualization_grid_view)
+                            #self.oc.update_visualization2(current_grid=visualization_grid_view)
+
+                            if len(occupancy_grids) == 1:
+                                #print("Only one occupancy grid received, no conflicts to resolve.")
+                                self.oc.update_visualization2(current_grid=visualization_grid_view)
+                            else:
+                                self.oc.update_visualization2(current_grid=visualization_grid_view)
+                                #self.oc.update_visualization2(current_grid=temp_grid_visualization)
                     
                     elif msg_type == b"SEND_SOLUTION":
                         # Keep blocking for pyobj as requested

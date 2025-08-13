@@ -212,10 +212,10 @@ class Master:
                                                 bottom_right = (max(row, bottom_right[0]), max(col, bottom_right[1]))
                                         
                                         # If both are >= 3, add both to the list
-                                        if merged_grid[idx] >= 3 and value >= 5:
+                                        if merged_grid[idx] >= 2 and value >= 4:
                                             temp_grid[idx] = [merged_grid[idx], value]
                                             conflict = True
-                                        if merged_grid[idx] >= 5 and value >= 3:
+                                        if merged_grid[idx] >= 4 and value >= 2:
                                             temp_grid[idx] = [merged_grid[idx], value]
                                             conflict = True
                                         # If only merged_grid[idx] is >= 3, add that

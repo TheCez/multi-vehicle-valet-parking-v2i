@@ -1008,9 +1008,10 @@ def game_loop(args):
         QApplication.processEvents()
 
         # Initialize path follower
-        path_follower = follow_path_with_pid(world.player, path, speed=6.5)
+        path_follower = follow_path_with_pid(world.player, path, speed=6)
         clock = pygame.time.Clock()
         conflict = False
+        new_path = None
 
         #test = CommonRoadSceneGenerator()
         #test.run()
@@ -1086,10 +1087,47 @@ def game_loop(args):
                             if 0 <= gx < reach_occupancygrid.shape[0] and 0 <= gy < reach_occupancygrid.shape[1]:
                                 grid_x = int(round(gx))
                                 grid_y = int(round(gy))
-                                if test_reach_occupancygrid[grid_y, grid_x] != 2:  # Avoid overwriting existing path
+                                if test_reach_occupancygrid[grid_y, grid_x] != 2:  # Avoid overwriting car box
                                     test_reach_occupancygrid[grid_y, grid_x] = -2
                     except Exception as e:
                         print("Error marking path from car front to goal:", e)
+                if new_path is not None:
+                    path_copy = copy.deepcopy(new_path)
+                    if car_box_index is not None and len(path_copy.x) > 0:
+                        try:
+                            # Find the front-most point of the car (in the direction of the path)
+                            path_head = np.array([path_copy.x[0], path_copy.y[0]])
+                            car_box_array = np.array(car_box_index)
+                            # Find which car box point is furthest along the direction to the path head
+                            dists_to_path_head = np.linalg.norm(car_box_array - path_head, axis=1)
+                            front_idx = int(np.argmin(dists_to_path_head))
+                            car_gx, car_gy = car_box_index[front_idx]
+
+                            # Find the closest path point to the front of the car
+                            dists = [(gx - car_gx) ** 2 + (gy - car_gy) ** 2 for gx, gy in zip(path_copy.x, path_copy.y)]
+                            start_idx = int(np.argmin(dists))
+
+                            # Mark the path from the front of the car to the goal
+                            for gx, gy in zip(path_copy.x[start_idx:], path_copy.y[start_idx:]):
+                                if 0 <= gx < reach_occupancygrid.shape[0] and 0 <= gy < reach_occupancygrid.shape[1]:
+                                    grid_x = int(round(gx))
+                                    grid_y = int(round(gy))
+                                    if test_reach_occupancygrid[grid_y, grid_x] != 2 and test_reach_occupancygrid[grid_y, grid_x] != -2:  # Avoid overwriting car box
+                                        test_reach_occupancygrid[grid_y, grid_x] = 6
+                        except Exception as e:
+                            print("Error marking path from car front to goal:", e)
+                # # Get ego vehicle's world coordinates
+                # ego_location = world.player.get_location()
+                # ego_x = ego_location.x
+                # ego_y = ego_location.y
+
+                # # Convert ego vehicle's world coordinates to grid coordinates
+                # ego_gx, ego_gy = hybrid_astar.world_to_grid(ego_x, ego_y, 500 // 2, 0.5)
+
+                # # Mark the ego vehicle's grid cell as -2 in the occupancy grid
+                # if 0 <= ego_gy < test_reach_occupancygrid.shape[0] and 0 <= ego_gx < test_reach_occupancygrid.shape[1]:
+                #     test_reach_occupancygrid[int(ego_gy), int(ego_gx)] = 3
+
 
                 sent = subscriber.send_conflict(test_reach_occupancygrid)
 
@@ -1136,7 +1174,7 @@ def game_loop(args):
                             destination_x = path.x[-1] + padding['pad_x'] - conflict_area_bounds['min_col']
 
                         updated_path = hybrid_astar.short_path_finder(
-                            player_x, player_y, destination_yaw,#player_yaw,
+                            player_x, player_y+2, destination_yaw,#player_yaw,
                             destination_x, new_destination_y, destination_yaw,
                             small_grid, conflict_area_bounds['min_col'], conflict_area_bounds['min_row'],
                             padding['pad_x'], padding['pad_y']
@@ -1163,7 +1201,7 @@ def game_loop(args):
                         
 
                         if updated_path is not None:
-                            path = stitch_paths(path, updated_path, conflict_area_bounds, padding)
+                            new_path = stitch_paths(path, updated_path, conflict_area_bounds, padding)
 
                             #######################################################################################################################
                             # updated_path_x_global = [x - padding['pad_x'] + conflict_area_bounds['min_col'] for x in updated_path.x]
@@ -1225,7 +1263,7 @@ def game_loop(args):
                             # # break
                             #####################################################################################################################################
 
-                            path_follower = follow_path_with_pid(world.player, path, speed=6.5)
+                            path_follower = follow_path_with_pid(world.player, new_path, speed=6)
                             # print("Stitched path (x, y) combo:")
                             # for x, y in zip(path.x, path.y):
                             #     print(f"Stitched path: ({x}, {y})")
@@ -1263,18 +1301,19 @@ def game_loop(args):
                             last_destination = (path.x[-1], path.y[-1])
                             # Send world.player coordinates and yaw to hybrid_astar
                             updated_path = hybrid_astar.short_path_finder(
-                            player_x, player_y, destination_yaw,#player_yaw,
+                            player_x, player_y+2, destination_yaw,#player_yaw,
                             int(destination_x), int(destination_y)-5, destination_yaw,
                             small_grid, conflict_area_bounds['min_col'], conflict_area_bounds['min_row'],
                             padding['pad_x'], padding['pad_y']
                             )
-                            path = stitch_paths(path, updated_path, conflict_area_bounds, padding)
+                            if updated_path is not None:
+                                new_path = stitch_paths(path, updated_path, conflict_area_bounds, padding)
                             # Add the last destination to the path after conflict resolution
                             if last_destination is not None:
-                                path.x.append(last_destination[0])
-                                path.y.append(last_destination[1])
+                                np.append(path.x, last_destination[0])
+                                np.append(path.y, last_destination[1])
 
-                            path_follower = follow_path_with_pid(world.player, path, speed=6.5)
+                            path_follower = follow_path_with_pid(world.player, new_path, speed=6)
                             print("Calculated final path after conflict resolution")
                             conflict = False
 

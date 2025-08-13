@@ -8,7 +8,7 @@ def solve_conflict(conflict_area):
     It should contain the logic to resolve conflicts in the CommonRoad scenarios.
     """
     # Implement conflict resolution logic here
-    conflict_area[(conflict_area == 3) | (conflict_area == -2)] = 0
+    conflict_area[(conflict_area == 3) | (conflict_area == -2) | (conflict_area == 6)] = 0
 
     #conflict_area[conflict_area == 2] = 1
     start_path_finding =False

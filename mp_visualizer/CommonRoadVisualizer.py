@@ -13,6 +13,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from PyQt6.QtCore import QObject, pyqtSignal, QMutex, QMutexLocker
 from commonroad_reach.utility.coordinate_system import convert_to_cartesian_polygons
+import math
 
 
 class CommonRoadVisualizer(QMainWindow):
@@ -87,15 +88,22 @@ class CommonRoadVisualizer(QMainWindow):
             # Get latest CARLA state
             # ego_vehicle = self.world.get_actors().filter('vehicle.*')[0]
             position, orientation = carla_to_commonroad_transform_actor(self.ego_vehicle)
+            angular_velocity = self.ego_vehicle.get_angular_velocity()
+            velocity = self.ego_vehicle.get_velocity()
+            v_x = velocity.x
+            v_y = velocity.y
+            speed = (velocity.x**2 + velocity.y**2 + velocity.z**2)**0.5  # Convert to speed
+            slip_angle = math.atan2(v_y, v_x)
+            slip_angle = np.degrees(slip_angle)  # Convert to degrees
             
             # Update the planning problem's initial state
             initial_state = InitialState(
                 position=position,
                 orientation=orientation,
-                velocity=6.5,
+                velocity=speed * 3.6,  # Convert m/s to km/h
                 time_step=0,
-                yaw_rate=0.0,
-                slip_angle=0.0,
+                yaw_rate=angular_velocity.z,
+                slip_angle=slip_angle,
             )
             self.planning_problem.initial_state = initial_state
             

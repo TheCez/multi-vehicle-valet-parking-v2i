@@ -865,7 +865,7 @@ def game_loop(args):
         QApplication.processEvents()
 
         # Initialize path follower
-        path_follower = follow_path_with_pid(world.player, path, speed=6.5)
+        path_follower = follow_path_with_pid(world.player, path, speed=6)
         clock = pygame.time.Clock()
 
         #test = CommonRoadSceneGenerator()

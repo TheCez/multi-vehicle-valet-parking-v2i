@@ -27,7 +27,8 @@ class OccupationGridVisualizer:
                        [255, 0, 0],       # 2: red (ego vehicle)
                        [0, 255, 0],      # 3: green (reachability sets)
                        [0, 0, 255],     # 4: blue (other car)
-                       [255, 255, 0]],  # 5: yellow (other car reachability set)
+                       [255, 255, 0],  # 5: yellow (other car reachability set)
+                       [255, 0, 255]],  # 6: magenta (new car path)
                       dtype=np.uint8)
         
     def mark_bounding_box(self, grid, bb, center, cell_size, value, transform=None):
