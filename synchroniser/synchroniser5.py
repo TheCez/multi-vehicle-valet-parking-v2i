@@ -7,7 +7,8 @@ import threading
 import numpy as np
 import pickle
 from occupation_grid.occupation_grid_with_grid_generator.occupation_grid_visualizer import OccupationGridVisualizer
-from conflict_solver.solver import solve_conflict
+from conflict_solver.solver2 import solve_conflict
+import os
 
 
 class Master:
@@ -73,6 +74,7 @@ class Master:
         self.subscribers_data = {}
         
         import queue
+
         self.visualization_queue = queue.Queue()
         
         self.polling_thread = threading.Thread(target=self.poll_subscriptions, daemon=True)
@@ -275,14 +277,24 @@ class Master:
                             
                             # Process conflicts
                             if conflict:
-                                for idx, cell in np.ndenumerate(temp_grid):
-                                    if isinstance(cell, list) and 3 in cell and 5 in cell:
+                                if not hasattr(self, 'overlap_obs'):
+                                    self.overlap_obs = []
+                                    if len(self.overlap_obs) == 0: 
+                                        for idx, cell in np.ndenumerate(temp_grid):
+                                            if isinstance(cell, list) and 3 in cell and 5 in cell:
+                                                temp_grid_visualization[idx] = 1
+                                                self.overlap_obs.append(idx)
+                                else:
+                                    for idx in self.overlap_obs:
                                         temp_grid_visualization[idx] = 1
+                                        #self.overlap_obs.append(idx)
+                                
+                                            
                                 if None not in (top_left, top_right, bottom_left, bottom_right):
                                     min_row = min(top_left[0], bottom_left[0])
                                     max_row = max(top_right[0], bottom_right[0])
-                                    min_col = min(top_left[1], top_right[1])
-                                    max_col = max(bottom_left[1], bottom_right[1])
+                                    min_col = min(top_left[1], top_right[1])-5
+                                    max_col = max(bottom_left[1], bottom_right[1])+5
 
                                     conflict_area = temp_grid_visualization[min_row:max_row+1, min_col:max_col+1]
                                     #overlapping_area = temp_grid[min_row:max_row+1, min_col:max_col+1]
@@ -310,6 +322,11 @@ class Master:
                                                 'max_col': max_col
                                             }
                                         }
+                                        # output_dir = "output_occupancy_grids"
+                                        # os.makedirs(output_dir, exist_ok=True)
+                                        # filename = f"conflict_area_{subscriber_id}.npy"
+                                        # filepath = os.path.join(output_dir, filename)
+                                        # np.save(filepath, conflict_area)
                                     else:
                                         self.conflict_solved[subscriber_id] = 'No Conflict'
                             else:
@@ -323,8 +340,8 @@ class Master:
                                 #print("Only one occupancy grid received, no conflicts to resolve.")
                                 self.oc.update_visualization2(current_grid=visualization_grid_view)
                             else:
-                                #self.oc.update_visualization2(current_grid=visualization_grid_view)
-                                self.oc.update_visualization2(current_grid=temp_grid_visualization)
+                                self.oc.update_visualization2(current_grid=visualization_grid_view)
+                                #self.oc.update_visualization2(current_grid=temp_grid_visualization)
                     
                     elif msg_type == b"SEND_SOLUTION":
                         # Keep blocking for pyobj as requested

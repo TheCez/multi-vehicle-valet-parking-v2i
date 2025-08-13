@@ -825,7 +825,7 @@ def conflict_area_to_real_grid(data, conflict_area_bounds, grid_size=500, cell_s
     return real_coords
 
 def round_off_grid(conflict_area):
-    #np.save("small_grids_test/path_non.npy", conflict_area)
+    np.save("small_grids_test/path_non.npy", conflict_area)
     conflict_shape = conflict_area.shape
     max_axis = max(conflict_shape)
     # Choose the new size: round up to nearest 50 or 100
@@ -1174,7 +1174,7 @@ def game_loop(args):
                             destination_x = path.x[-1] + padding['pad_x'] - conflict_area_bounds['min_col']
 
                         updated_path = hybrid_astar.short_path_finder(
-                            player_x, player_y+2, destination_yaw,#player_yaw,
+                            player_x, player_y, destination_yaw,#player_yaw,
                             destination_x, new_destination_y, destination_yaw,
                             small_grid, conflict_area_bounds['min_col'], conflict_area_bounds['min_row'],
                             padding['pad_x'], padding['pad_y']
