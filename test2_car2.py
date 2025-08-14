@@ -71,7 +71,7 @@ from PyQt6.QtWidgets import QApplication
 from mp_visualizer.CommonRoadVisualizer import CommonRoadVisualizer
 from PyQt6.QtCore import QTimer
 from VisualizationThread import VisualizationThread
-from synchroniser.synchroniser3 import Subscriber
+from synchroniser.synchroniser4 import Subscriber
 import time
 from occupation_grid.occupation_grid_with_grid_generator.occupation_grid import OccupationGrid
 from hybid_a_star_agent.MotionPlanning.HybridAstarPlanner import hybrid_astar
@@ -189,7 +189,7 @@ class World(object):
             spawn_points = self.map.get_spawn_points()
             spawn_point = random.choice(spawn_points) if spawn_points else carla.Transform()
             spawn_point = spawn_points[5]
-            custom_location = carla.Location(x=24.5, y=30, z=2)
+            custom_location = carla.Location(x=24.5, y=30, z=0.5)
             custom_rotation = carla.Rotation(pitch=0, yaw=90, roll=0)
             spawn_point = carla.Transform(custom_location, custom_rotation)
             self.player = self.world.try_spawn_actor(blueprint, spawn_point)
@@ -1062,7 +1062,12 @@ def game_loop(args):
                     break
                 #test.window.update_visualization()
                         # Update visualization
-                polygons = window.update_visualization()
+
+                # Get all car objects except the ego vehicle
+                all_vehicles = world.world.get_actors().filter('vehicle.*')
+                other_cars = [v for v in all_vehicles if v.id != world.player.id]
+
+                polygons = window.update_visualization(other_cars=other_cars)
 
                 reach_occupancygrid, car_box_index = occupationgrid.generate_occupation_grid(world.player, polygons)
                 test_reach_occupancygrid = reach_occupancygrid.copy().astype(np.int8)
@@ -1087,7 +1092,7 @@ def game_loop(args):
                             if 0 <= gx < reach_occupancygrid.shape[0] and 0 <= gy < reach_occupancygrid.shape[1]:
                                 grid_x = int(round(gx))
                                 grid_y = int(round(gy))
-                                if test_reach_occupancygrid[grid_y, grid_x] != 2:  # Avoid overwriting car box
+                                if test_reach_occupancygrid[grid_y, grid_x] not in [2,3] :  # Avoid overwriting car box
                                     test_reach_occupancygrid[grid_y, grid_x] = -2
                     except Exception as e:
                         print("Error marking path from car front to goal:", e)
@@ -1135,6 +1140,10 @@ def game_loop(args):
                     print("Conflict sent to subscriber")
                     final_occupancy_grid = subscriber.receive_solution()
                     if final_occupancy_grid is not None:
+                        # if final_occupancy_grid == 'Stop':
+                        #     world.player.apply_control(carla.VehicleControl(throttle=0.0, brake=1.0))
+                        #     continue
+
                         conflict = True
                         print("Received final occupancy grid from subscriber")
                         conflict_area = final_occupancy_grid['conflict_area']
@@ -1174,7 +1183,8 @@ def game_loop(args):
                             destination_x = path.x[-1] + padding['pad_x'] - conflict_area_bounds['min_col']
 
                         updated_path = hybrid_astar.short_path_finder(
-                            player_x, player_y+2, destination_yaw,#player_yaw,
+                            player_x, player_y+2, #destination_yaw,
+                            player_yaw,
                             destination_x, new_destination_y, destination_yaw,
                             small_grid, conflict_area_bounds['min_col'], conflict_area_bounds['min_row'],
                             padding['pad_x'], padding['pad_y']
@@ -1293,6 +1303,7 @@ def game_loop(args):
                     else:
                         print("Control side: No Conflict detected, proceeding with the path")
                         if conflict:
+                            player_transform = world.player.get_transform()
                             player_x = player_transform.location.x
                             player_y = player_transform.location.y
                             player_yaw = math.radians(player_transform.rotation.yaw)
@@ -1301,7 +1312,8 @@ def game_loop(args):
                             last_destination = (path.x[-1], path.y[-1])
                             # Send world.player coordinates and yaw to hybrid_astar
                             updated_path = hybrid_astar.short_path_finder(
-                            player_x, player_y+2, destination_yaw,#player_yaw,
+                            player_x, player_y+2, #destination_yaw,
+                            player_yaw,
                             int(destination_x), int(destination_y)-5, destination_yaw,
                             small_grid, conflict_area_bounds['min_col'], conflict_area_bounds['min_row'],
                             padding['pad_x'], padding['pad_y']

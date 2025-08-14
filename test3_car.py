@@ -184,7 +184,7 @@ class World(object):
             spawn_points = self.map.get_spawn_points()
             spawn_point = random.choice(spawn_points) if spawn_points else carla.Transform()
             spawn_point = spawn_points[5]
-            custom_location = carla.Location(x=26, y=70, z=2)
+            custom_location = carla.Location(x=26, y=70, z=0.5)
             custom_rotation = carla.Rotation(pitch=0, yaw=270, roll=0)
             spawn_point = carla.Transform(custom_location, custom_rotation)
             self.player = self.world.try_spawn_actor(blueprint, spawn_point)
@@ -867,6 +867,7 @@ def game_loop(args):
         # Initialize path follower
         path_follower = follow_path_with_pid(world.player, path, speed=6)
         clock = pygame.time.Clock()
+        brake = False
 
         #test = CommonRoadSceneGenerator()
         #test.run()
@@ -910,15 +911,23 @@ def game_loop(args):
                 #         break
 
                 try:
-                    control = next(path_follower)
-                    control.manual_gear_shift = False
-                    world.player.apply_control(control)
+                    if brake:
+                        control = carla.VehicleControl(throttle=0.0, brake=1.0)
+                        world.player.apply_control(control)
+                        #continue
+                    else:
+                        control = next(path_follower)
+                        control.manual_gear_shift = False
+                        world.player.apply_control(control)
                 except StopIteration:
                     print("Reached the end of the path.")
                     break
                 #test.window.update_visualization()
                         # Update visualization
-                polygons = window.update_visualization()
+
+                all_vehicles = world.world.get_actors().filter('vehicle.*')
+                other_cars = [v for v in all_vehicles if v.id != world.player.id]
+                polygons = window.update_visualization(other_cars=other_cars)
 
                 reach_occupancygrid, car_box_index = occupationgrid.generate_occupation_grid(world.player, polygons)
                 test_reach_occupancygrid = reach_occupancygrid.copy().astype(np.int8)
@@ -955,7 +964,7 @@ def game_loop(args):
                                         grid_y = int(np.ceil(gy))
                                     else:
                                         grid_y = int(np.floor(gy))
-                                    if test_reach_occupancygrid[grid_y, grid_x] != 2:
+                                    if test_reach_occupancygrid[grid_y, grid_x] not in [2,3]:
                                         test_reach_occupancygrid[grid_y, grid_x] = -2
                         except Exception as e:
                             print("Error marking path from car to goal:", e)
@@ -980,13 +989,18 @@ def game_loop(args):
                     print("Conflict sent to subscriber")
                     final_occupancy_grid = subscriber.receive_solution()
                     if final_occupancy_grid is not None:
-                        print("Received final occupancy grid from subscriber")
-                        print("Control side: conflict_area : ", final_occupancy_grid['conflict_area'].shape)
-                        print("Control side: new_path_point : ", final_occupancy_grid['new_path_point'])
+                        if final_occupancy_grid == 'Stop':
+                            #print("Control side: Conflict detected, stopping the vehicle")
+                            brake = True
+                            continue
+                        # print("Received final occupancy grid from subscriber")
+                        # print("Control side: conflict_area : ", final_occupancy_grid['conflict_area'].shape)
+                        # print("Control side: new_path_point : ", final_occupancy_grid['new_path_point'])
                         # Update the visualization with the final occupancy grid
                         #print("control side: ", final_occupancy_grid.shape)
                     else:
                         print("Control side: No Conflict detected, proceeding with the path")
+                        brake = False
 
 
 

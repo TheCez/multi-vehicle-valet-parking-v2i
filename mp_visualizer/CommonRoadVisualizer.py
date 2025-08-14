@@ -14,6 +14,12 @@ import matplotlib.pyplot as plt
 from PyQt6.QtCore import QObject, pyqtSignal, QMutex, QMutexLocker
 from commonroad_reach.utility.coordinate_system import convert_to_cartesian_polygons
 import math
+from commonroad.visualization.draw_params import DynamicObstacleParams
+
+# Draw ego vehicle
+from commonroad.geometry.shape import Rectangle
+from commonroad.scenario.obstacle import DynamicObstacle, ObstacleType
+from commonroad.scenario.obstacle import StaticObstacle
 
 
 class CommonRoadVisualizer(QMainWindow):
@@ -73,7 +79,7 @@ class CommonRoadVisualizer(QMainWindow):
         # Render the canvas
         #self.canvas.render()
 
-    def update_visualization(self):
+    def update_visualization(self, other_cars=None):
         """Update dynamic elements (ego vehicle and reachability analysis)"""
 
         # with QMutexLocker(self.mutex):
@@ -106,29 +112,71 @@ class CommonRoadVisualizer(QMainWindow):
                 slip_angle=slip_angle,
             )
             self.planning_problem.initial_state = initial_state
+
+
+            if other_cars is not None:
+                # Create a list to hold obstacles for other vehicles
+                obstacles_to_add = []
+                for car in other_cars:
+                    position, orientation = carla_to_commonroad_transform_actor(car)
+                    velocity = car.get_velocity()
+                    speed = (velocity.x**2 + velocity.y**2 + velocity.z**2)**0.5
+                    angular_velocity = car.get_angular_velocity()
+                    slip_angle = math.atan2(velocity.y, velocity.x)
+                    slip_angle = np.degrees(slip_angle)  # Convert to degrees
+
+                    car_rect = Rectangle(length=4.3, width=1.8, center=np.zeros(2))
+                    car_initial_state = InitialState(
+                        position=position,
+                        orientation=orientation,
+                        velocity=speed * 3.6,  # Convert m/s to km/h
+                        time_step=0,
+                        yaw_rate=angular_velocity.z,
+                        slip_angle=slip_angle,
+                    )
+                    
+                    # Add as static obstacle instead of dynamic
+                    car_static_obstacle = StaticObstacle(
+                        obstacle_id=self.scenario.generate_object_id(),
+                        obstacle_type=ObstacleType.CAR,
+                        obstacle_shape=car_rect,
+                        initial_state=car_initial_state
+                    )
+                    obstacles_to_add.append(car_static_obstacle)
+                    car_draw_params = DynamicObstacleParams()
+                    car_draw_params.facecolor = 'blue'
+                    car_static_obstacle.draw(self.canvas.mp_renderer, draw_params=car_draw_params)
+                # Add all obstacles at once
+                self.scenario.add_objects(obstacles_to_add)
+                    
             
             # Perform reachability analysis
             current_step = self.base_config.planning.steps_computation
             self.reach_interface = real_time_reachability_analysis(
                 self.base_config, self.scenario, self.planning_problem
             )
+
+            if 'obstacles_to_add' in locals():
+                self.scenario.remove_obstacle(obstacles_to_add)
+                # for obs in obstacles_to_add:
+                #     self.scenario.remove_obstacle(obs)
             
-            # Draw ego vehicle
-            from commonroad.geometry.shape import Rectangle
-            from commonroad.scenario.obstacle import DynamicObstacle, ObstacleType
+
+
+
             
             ego_rect = Rectangle(length=4.3, width=1.8, center=np.zeros(2))
             ego_obstacle = DynamicObstacle(
-                obstacle_id=100000,
+                obstacle_id=self.scenario.generate_object_id(),
                 obstacle_type=ObstacleType.CAR,
                 obstacle_shape=ego_rect,
                 initial_state=initial_state
             )
 
             # Create a proper DrawParams object for dynamic obstacles
-            from commonroad.visualization.draw_params import DynamicObstacleParams
+            
             draw_params = DynamicObstacleParams()
-            draw_params.facecolor = 'red'  # Set the color property
+            draw_params.facecolor = 'blue'  # Set the color property
             
             # Draw the ego vehicle with custom styling
             ego_obstacle.draw(self.canvas.mp_renderer, draw_params=draw_params)

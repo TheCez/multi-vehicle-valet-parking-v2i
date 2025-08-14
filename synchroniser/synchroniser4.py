@@ -268,31 +268,32 @@ class Master:
 
                                     conflict_area = temp_grid_visualization[min_row:max_row+1, min_col:max_col+1]
                                 
-                                conflict_area, new_path_point = solve_conflict(conflict_area)
+                                conflict_area, new_path_point, stop = solve_conflict(conflict_area)
                                 self.conflict_solved = {}
                                 sub_id = None
-                                
                                 if new_path_point is not None:
                                     if np.any((conflict_area == 4)):
                                         for sub_id, sub_data in self.subscribers_data.items():
                                             if sub_data['car_value'] == 4:
                                                 break
-                                
-                                for subscriber_id in occupancy_grids.keys():
-                                    if subscriber_id == sub_id:
-                                        conflict_area[(conflict_area == 4)] = 0
-                                        self.conflict_solved[subscriber_id] = {
-                                            'conflict_area': conflict_area,
-                                            'new_path_point': new_path_point,
-                                            'conflict_area_bounds': {
-                                                'min_row': min_row,
-                                                'max_row': max_row,
-                                                'min_col': min_col,
-                                                'max_col': max_col
-                                            }
-                                        }
-                                    else:
-                                        self.conflict_solved[subscriber_id] = 'No Conflict'
+                                    if sub_id is not None:
+                                        for subscriber_id in occupancy_grids.keys():
+                                            if subscriber_id == sub_id:
+                                                conflict_area[(conflict_area == 4)] = 0
+                                                self.conflict_solved[subscriber_id] = {
+                                                    'conflict_area': conflict_area,
+                                                    'new_path_point': new_path_point,
+                                                    'conflict_area_bounds': {
+                                                        'min_row': min_row,
+                                                        'max_row': max_row,
+                                                        'min_col': min_col,
+                                                        'max_col': max_col
+                                                    }
+                                                }
+                                            else:
+                                                self.conflict_solved[subscriber_id] = 'Stop'
+                                else:
+                                    self.conflict_solved = {subscriber_id: 'No Conflict' for subscriber_id in occupancy_grids.keys()}
                             else:
                                 self.conflict_solved = {subscriber_id: 'No Conflict' for subscriber_id in occupancy_grids.keys()}
 
@@ -447,6 +448,8 @@ class Subscriber:
                     return None
                 if isinstance(reply[self.uuid], str) and reply[self.uuid] == 'No Conflict':
                     return None
+                elif isinstance(reply[self.uuid], str) and reply[self.uuid] == 'Stop':
+                    return 'Stop'
                 elif isinstance(reply[self.uuid], dict):
                     return reply[self.uuid]
         except Exception:
