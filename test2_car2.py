@@ -1117,7 +1117,7 @@ def game_loop(args):
                                 if 0 <= gx < reach_occupancygrid.shape[0] and 0 <= gy < reach_occupancygrid.shape[1]:
                                     grid_x = int(round(gx))
                                     grid_y = int(round(gy))
-                                    if test_reach_occupancygrid[grid_y, grid_x] != 2 and test_reach_occupancygrid[grid_y, grid_x] != -2:  # Avoid overwriting car box
+                                    if test_reach_occupancygrid[grid_y, grid_x] not in [2, -2,3]:  # Avoid overwriting car box
                                         test_reach_occupancygrid[grid_y, grid_x] = 6
                         except Exception as e:
                             print("Error marking path from car front to goal:", e)

@@ -22,6 +22,7 @@ def solve_conflict(conflict_area):
     #conflict_area[conflict_area == 2] = 1
     start_path_finding =False
     stop = False
+    waypoint = None
 
     # Create a flag array to mark positions where a 2 is surrounded by at least four 5s
     rows, cols = conflict_area.shape
@@ -49,7 +50,7 @@ def solve_conflict(conflict_area):
 
 
 
-    waypoint = None
+    
             
 
     if start_path_finding:
@@ -86,7 +87,7 @@ def solve_conflict(conflict_area):
             sub_area = np.where(sub_area == 5, 0, 1)
             conflict_area[min_row:max_row+1, min_col:max_col+1] = sub_area
 
-            waypoint = (waypoint[0] + 10, waypoint[1])
+            waypoint = (waypoint[0], waypoint[1])
             conflict_area[waypoint[0], waypoint[1]] = 4
             #waypoint = None
         
