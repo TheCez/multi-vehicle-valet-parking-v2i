@@ -287,7 +287,7 @@ class Master:
                                 else:
                                     for idx in self.overlap_obs:
                                         temp_grid_visualization[idx] = 1
-                                        #self.overlap_obs.append(idx)
+                            
                                 
                                             
                                 if None not in (top_left, top_right, bottom_left, bottom_right):
@@ -340,8 +340,17 @@ class Master:
                                 #print("Only one occupancy grid received, no conflicts to resolve.")
                                 self.oc.update_visualization2(current_grid=visualization_grid_view)
                             else:
-                                self.oc.update_visualization2(current_grid=visualization_grid_view)
+                                #self.oc.update_visualization2(current_grid=visualization_grid_view)
                                 #self.oc.update_visualization2(current_grid=temp_grid_visualization)
+
+                                # Add a black line (value 1) between the grids
+                                separator = np.ones((visualization_grid_view.shape[0], 2), dtype=visualization_grid_view.dtype)
+                                # Concatenate visualization_grid_view, separator, and temp_grid_visualization horizontally
+                                combined_grid = np.concatenate(
+                                    (visualization_grid_view, separator, temp_grid_visualization), axis=1
+                                )
+                                # Visualize the combined grid
+                                self.oc.update_visualization2(current_grid=combined_grid, zoom=False)
                     
                     elif msg_type == b"SEND_SOLUTION":
                         # Keep blocking for pyobj as requested

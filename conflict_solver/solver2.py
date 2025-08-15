@@ -45,7 +45,9 @@ def solve_conflict(conflict_area):
         waypoint = (waypoint[0] + 5, waypoint[1])
         #conflict_area[waypoint[0] + 5, waypoint[1]] = 3
         conflict_area[(conflict_area == -4)] = 0
-        conflict_area[ (conflict_area == -2) | (conflict_area == 6)  | (conflict_area == 5)] = 0
+        conflict_area[ (conflict_area == -2) 
+                      #| (conflict_area == 6)  
+                      | (conflict_area == 5)] = 0
         conflict_area[conflict_area == 2] = 1
 
 
