@@ -153,6 +153,9 @@ class OccupationGridVisualizer:
             #         )
                 zoomed_grid = cv2.resize(context_grid, None, fx=zoom_factor, fy=zoom_factor, interpolation=cv2.INTER_NEAREST)
                 cv2.imshow(self.window_name, zoomed_grid)
+            else:
+                # Show full grid if ego vehicle not found
+                cv2.imshow(self.window_name, colored_grid)
         
         else:
             # Show full grid if ego vehicle not found
