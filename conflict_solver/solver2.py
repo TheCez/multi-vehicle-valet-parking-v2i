@@ -41,7 +41,7 @@ def solve_conflict(conflict_area):
             if zero_count == 4 and two_count == 2:
                 #conflict_area[row, col] = 3
                 waypoint = (row, col)
-        print("Waypoint found at:", waypoint)
+        #print("Waypoint found at:", waypoint)
         waypoint = (waypoint[0] + 5, waypoint[1])
         #conflict_area[waypoint[0] + 5, waypoint[1]] = 3
         conflict_area[(conflict_area == -4)] = 0
@@ -49,6 +49,7 @@ def solve_conflict(conflict_area):
                       #| (conflict_area == 6)  
                       | (conflict_area == 5)] = 0
         conflict_area[conflict_area == 2] = 1
+        conflict_area[waypoint[0], waypoint[1]] = 3
 
 
         
