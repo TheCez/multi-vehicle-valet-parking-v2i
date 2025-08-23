@@ -299,7 +299,8 @@ class Master:
                             
                                 
                             #self.oc.update_visualization2(current_grid=vis_grid)
-                            # if self.visualize:
+                            if self.visualize:
+                                self.oc.update_visualization2(current_grid=vis_grid)
 
                             #     if len(occupancy_grids) == 1:
                             #         #print("Only one occupancy grid received, no conflicts to resolve.")

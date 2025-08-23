@@ -67,13 +67,13 @@ class CommonRoadVisualizer(QMainWindow):
             # Draw the scenario (includes lanelets, obstacles, etc.)
             self.scenario.draw(self.canvas.mp_renderer)
             
-            # Draw planning problem (includes initial and goal states)
-            if hasattr(self.planning_problem, 'draw'):
-                self.planning_problem.draw(self.canvas.mp_renderer)
-            else:
-                # Create a planning problem set if we only have a single problem
-                planning_problem_set = PlanningProblemSet([self.planning_problem])
-                planning_problem_set.draw(self.canvas.mp_renderer)
+            # # Draw planning problem (includes initial and goal states)
+            # if hasattr(self.planning_problem, 'draw'):
+            #     self.planning_problem.draw(self.canvas.mp_renderer)
+            # else:
+            #     # Create a planning problem set if we only have a single problem
+            #     planning_problem_set = PlanningProblemSet([self.planning_problem])
+            #     planning_problem_set.draw(self.canvas.mp_renderer)
         
         # Render the canvas
         #self.canvas.render()
@@ -120,6 +120,18 @@ class CommonRoadVisualizer(QMainWindow):
             self.reach_interface = real_time_reachability_analysis(
                 self.base_config, self.scenario, self.planning_problem
             )
+
+            # initial_state =InitialState(
+            #     position=position,
+            #     orientation=orientation,
+            #     #velocity=speed * 3.6,  # Convert m/s to km/h
+            #     velocity = 7,
+            #     time_step=0,
+            #     yaw_rate=angular_velocity.z,
+            #     slip_angle=slip_angle,
+            # )
+            # self.planning_problem.initial_state = initial_state
+            # control_decision = 
 
             if self.visualize:
             

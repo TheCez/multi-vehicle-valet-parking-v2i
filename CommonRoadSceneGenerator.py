@@ -112,8 +112,8 @@ class CommonRoadSceneGenerator:
         #self.base_config.vehicle.ego.id_type_vehicle
         #self.window = CommonRoadVisualizer(self.base_config, self.scenario, self.planning_problem, self.world)
 
-    def scenario_loader(world):
-        opendrive_str = world.get_map().to_opendrive()
+    def scenario_loader(self, world):
+        opendrive_str = world.world.get_map().to_opendrive()
 
         # Create a temporary file to save OpenDRIVE XML string
         with tempfile.NamedTemporaryFile(suffix=".xodr", delete=False, mode='w', encoding='utf-8') as temp_file:

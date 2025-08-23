@@ -898,6 +898,9 @@ def stitch_paths(path, updated_path, conflict_area_bounds, padding):
 
     return new_path
 
+# def mark_parking_lines_on_grid(grid, scenario):
+
+
 
 # ==============================================================================
 # -- Game Loop ---------------------------------------------------------
@@ -1010,6 +1013,9 @@ def game_loop(args):
             window.show()
             # Force initial GUI update
         QApplication.processEvents()
+
+        scenario = test.scenario
+
 
         # Initialize path follower
         path_follower = follow_path_with_pid(world.player, path, speed=6)
