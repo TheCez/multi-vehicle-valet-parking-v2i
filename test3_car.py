@@ -1,0 +1,1141 @@
+#!/usr/bin/env python
+
+# Copyright (c) 2018 Intel Labs.
+# authors: German Ros (german.ros@intel.com)
+#
+# This work is licensed under the terms of the MIT license.
+# For a copy, see <https://opensource.org/licenses/MIT>.
+
+"""Example of automatic vehicle control from client side."""
+
+from __future__ import print_function
+
+import argparse
+import collections
+import datetime
+import glob
+import logging
+import math
+import os
+import numpy.random as random
+import re
+import sys
+import weakref
+
+try:
+    import pygame
+    from pygame.locals import KMOD_CTRL
+    from pygame.locals import K_ESCAPE
+    from pygame.locals import K_q
+except ImportError:
+    raise RuntimeError('cannot import pygame, make sure pygame package is installed')
+
+try:
+    import numpy as np
+except ImportError:
+    raise RuntimeError(
+        'cannot import numpy, make sure numpy package is installed')
+
+# ==============================================================================
+# -- Find CARLA module ---------------------------------------------------------
+# ==============================================================================
+try:
+    sys.path.append(glob.glob('../carla/dist/carla-*%d.%d-%s.egg' % (
+        sys.version_info.major,
+        sys.version_info.minor,
+        'win-amd64' if os.name == 'nt' else 'linux-x86_64'))[0])
+except IndexError:
+    pass
+
+# ==============================================================================
+# -- Add PythonAPI for release mode --------------------------------------------
+# ==============================================================================
+try:
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))) + '/carla')
+except IndexError:
+    pass
+
+import carla
+from carla import ColorConverter as cc
+
+from agents.navigation.behavior_agent import BehaviorAgent  # pylint: disable=import-error
+from agents.navigation.basic_agent import BasicAgent  # pylint: disable=import-error
+from agents.navigation.constant_velocity_agent import ConstantVelocityAgent  # pylint: disable=import-error
+
+
+# ==============================================================================
+# -- My Imports ----------------------------------------------------------
+# ==============================================================================
+from CommonRoadSceneGenerator import CommonRoadSceneGenerator
+from PyQt6.QtWidgets import QApplication
+from mp_visualizer.CommonRoadVisualizer import CommonRoadVisualizer
+from PyQt6.QtCore import QTimer
+from VisualizationThread import VisualizationThread
+from synchroniser.synchroniser4 import Subscriber
+import time
+from occupation_grid.occupation_grid_with_grid_generator.occupation_grid import OccupationGrid
+from hybid_a_star_agent.MotionPlanning.HybridAstarPlanner import hybrid_astar
+from agents.navigation.controller import VehiclePIDController
+# ==============================================================================
+# -- Global functions ----------------------------------------------------------
+# ==============================================================================
+
+
+def find_weather_presets():
+    """Method to find weather presets"""
+    rgx = re.compile('.+?(?:(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|$)')
+    def name(x): return ' '.join(m.group(0) for m in rgx.finditer(x))
+    presets = [x for x in dir(carla.WeatherParameters) if re.match('[A-Z].+', x)]
+    return [(getattr(carla.WeatherParameters, x), name(x)) for x in presets]
+
+
+def get_actor_display_name(actor, truncate=250):
+    """Method to get actor display name"""
+    name = ' '.join(actor.type_id.replace('_', '.').title().split('.')[1:])
+    return (name[:truncate - 1] + u'\u2026') if len(name) > truncate else name
+
+def get_actor_blueprints(world, filter, generation):
+    bps = world.get_blueprint_library().filter(filter)
+
+    if generation.lower() == "all":
+        return bps
+
+    # If the filter returns only one bp, we assume that this one needed
+    # and therefore, we ignore the generation
+    if len(bps) == 1:
+        return bps
+
+    try:
+        int_generation = int(generation)
+        # Check if generation is in available generations
+        if int_generation in [1, 2, 3]:
+            bps = [x for x in bps if int(x.get_attribute('generation')) == int_generation]
+            return bps
+        else:
+            print("   Warning! Actor Generation is not valid. No actor will be spawned.")
+            return []
+    except:
+        print("   Warning! Actor Generation is not valid. No actor will be spawned.")
+        return []
+
+# ==============================================================================
+# -- World ---------------------------------------------------------------
+# ==============================================================================
+
+class World(object):
+    """ Class representing the surrounding environment """
+
+    def __init__(self, carla_world, hud, args):
+        """Constructor method"""
+        self._args = args
+        self.world = carla_world
+        try:
+            self.map = self.world.get_map()
+        except RuntimeError as error:
+            print('RuntimeError: {}'.format(error))
+            print('  The server could not send the OpenDRIVE (.xodr) file:')
+            print('  Make sure it exists, has the same name of your town, and is correct.')
+            sys.exit(1)
+        self.hud = hud
+        self.player = None
+        self.collision_sensor = None
+        self.lane_invasion_sensor = None
+        self.gnss_sensor = None
+        self.camera_manager = None
+        self._weather_presets = find_weather_presets()
+        self._weather_index = 0
+        self._actor_filter = args.filter
+        self._actor_generation = args.generation
+        self.restart(args)
+        self.world.on_tick(hud.on_world_tick)
+        self.recording_enabled = False
+        self.recording_start = 0
+
+    def restart(self, args):
+        """Restart the world"""
+        # Keep same camera config if the camera manager exists.
+        cam_index = self.camera_manager.index if self.camera_manager is not None else 0
+        cam_pos_id = self.camera_manager.transform_index if self.camera_manager is not None else 0
+
+        # Get a random blueprint.
+        blueprint_list = get_actor_blueprints(self.world, self._actor_filter, self._actor_generation)
+        if not blueprint_list:
+            raise ValueError("Couldn't find any blueprints with the specified filters")
+        blueprint = random.choice(blueprint_list)
+        blueprint.set_attribute('role_name', 'hero')
+        if blueprint.has_attribute('color'):
+            color = random.choice(blueprint.get_attribute('color').recommended_values)
+            blueprint.set_attribute('color', color)
+
+        # Spawn the player.
+        if self.player is not None:
+            spawn_point = self.player.get_transform()
+            spawn_point.location.z += 2.0
+            spawn_point.rotation.roll = 0.0
+            spawn_point.rotation.pitch = 0.0
+            self.destroy()
+            self.player = self.world.try_spawn_actor(blueprint, spawn_point)
+            self.modify_vehicle_physics(self.player)
+        while self.player is None:
+            if not self.map.get_spawn_points():
+                print('There are no spawn points available in your map/town.')
+                print('Please add some Vehicle Spawn Point to your UE4 scene.')
+                sys.exit(1)
+            spawn_points = self.map.get_spawn_points()
+            spawn_point = random.choice(spawn_points) if spawn_points else carla.Transform()
+            spawn_point = spawn_points[5]
+            custom_location = carla.Location(x=26, y=70, z=0.5)
+            custom_rotation = carla.Rotation(pitch=0, yaw=270, roll=0)
+            spawn_point = carla.Transform(custom_location, custom_rotation)
+            self.player = self.world.try_spawn_actor(blueprint, spawn_point)
+            self.modify_vehicle_physics(self.player)
+
+        if self._args.sync:
+            self.world.tick()
+        else:
+            self.world.wait_for_tick()
+
+        # Set up the sensors.
+        self.collision_sensor = CollisionSensor(self.player, self.hud)
+        self.lane_invasion_sensor = LaneInvasionSensor(self.player, self.hud)
+        self.gnss_sensor = GnssSensor(self.player)
+        self.camera_manager = CameraManager(self.player, self.hud)
+        self.camera_manager.transform_index = cam_pos_id
+        self.camera_manager.set_sensor(cam_index, notify=False)
+        actor_type = get_actor_display_name(self.player)
+        self.hud.notification(actor_type)
+
+    def next_weather(self, reverse=False):
+        """Get next weather setting"""
+        self._weather_index += -1 if reverse else 1
+        self._weather_index %= len(self._weather_presets)
+        preset = self._weather_presets[self._weather_index]
+        self.hud.notification('Weather: %s' % preset[1])
+        self.player.get_world().set_weather(preset[0])
+
+    def modify_vehicle_physics(self, actor):
+        #If actor is not a vehicle, we cannot use the physics control
+        try:
+            physics_control = actor.get_physics_control()
+            physics_control.use_sweep_wheel_collision = True
+            actor.apply_physics_control(physics_control)
+        except Exception:
+            pass
+
+    def tick(self, clock):
+        """Method for every tick"""
+        self.hud.tick(self, clock)
+
+    def render(self, display):
+        """Render world"""
+        self.camera_manager.render(display)
+        self.hud.render(display)
+
+    def destroy_sensors(self):
+        """Destroy sensors"""
+        self.camera_manager.sensor.destroy()
+        self.camera_manager.sensor = None
+        self.camera_manager.index = None
+
+    def destroy(self):
+        """Destroys all actors"""
+        actors = [
+            self.camera_manager.sensor,
+            self.collision_sensor.sensor,
+            self.lane_invasion_sensor.sensor,
+            self.gnss_sensor.sensor,
+            self.player]
+        for actor in actors:
+            if actor is not None:
+                actor.destroy()
+
+
+# ==============================================================================
+# -- KeyboardControl -----------------------------------------------------------
+# ==============================================================================
+
+
+class KeyboardControl(object):
+    def __init__(self, world):
+        world.hud.notification("Press 'H' or '?' for help.", seconds=4.0)
+
+    def parse_events(self):
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return True
+            if event.type == pygame.KEYUP:
+                if self._is_quit_shortcut(event.key):
+                    return True
+
+    @staticmethod
+    def _is_quit_shortcut(key):
+        """Shortcut for quitting"""
+        return (key == K_ESCAPE) or (key == K_q and pygame.key.get_mods() & KMOD_CTRL)
+
+# ==============================================================================
+# -- HUD -----------------------------------------------------------------------
+# ==============================================================================
+
+
+class HUD(object):
+    """Class for HUD text"""
+
+    def __init__(self, width, height):
+        """Constructor method"""
+        self.dim = (width, height)
+        font = pygame.font.Font(pygame.font.get_default_font(), 20)
+        font_name = 'courier' if os.name == 'nt' else 'mono'
+        fonts = [x for x in pygame.font.get_fonts() if font_name in x]
+        default_font = 'ubuntumono'
+        mono = default_font if default_font in fonts else fonts[0]
+        mono = pygame.font.match_font(mono)
+        self._font_mono = pygame.font.Font(mono, 12 if os.name == 'nt' else 14)
+        self._notifications = FadingText(font, (width, 40), (0, height - 40))
+        self.help = HelpText(pygame.font.Font(mono, 24), width, height)
+        self.server_fps = 0
+        self.frame = 0
+        self.simulation_time = 0
+        self._show_info = True
+        self._info_text = []
+        self._server_clock = pygame.time.Clock()
+
+    def on_world_tick(self, timestamp):
+        """Gets informations from the world at every tick"""
+        self._server_clock.tick()
+        self.server_fps = self._server_clock.get_fps()
+        self.frame = timestamp.frame_count
+        self.simulation_time = timestamp.elapsed_seconds
+
+    def tick(self, world, clock):
+        """HUD method for every tick"""
+        self._notifications.tick(world, clock)
+        if not self._show_info:
+            return
+        transform = world.player.get_transform()
+        vel = world.player.get_velocity()
+        control = world.player.get_control()
+        heading = 'N' if abs(transform.rotation.yaw) < 89.5 else ''
+        heading += 'S' if abs(transform.rotation.yaw) > 90.5 else ''
+        heading += 'E' if 179.5 > transform.rotation.yaw > 0.5 else ''
+        heading += 'W' if -0.5 > transform.rotation.yaw > -179.5 else ''
+        colhist = world.collision_sensor.get_collision_history()
+        collision = [colhist[x + self.frame - 200] for x in range(0, 200)]
+        max_col = max(1.0, max(collision))
+        collision = [x / max_col for x in collision]
+        vehicles = world.world.get_actors().filter('vehicle.*')
+
+        self._info_text = [
+            'Server:  % 16.0f FPS' % self.server_fps,
+            'Client:  % 16.0f FPS' % clock.get_fps(),
+            '',
+            'Vehicle: % 20s' % get_actor_display_name(world.player, truncate=20),
+            'Map:     % 20s' % world.map.name.split('/')[-1],
+            'Simulation time: % 12s' % datetime.timedelta(seconds=int(self.simulation_time)),
+            '',
+            'Speed:   % 15.0f km/h' % (3.6 * math.sqrt(vel.x**2 + vel.y**2 + vel.z**2)),
+            u'Heading:% 16.0f\N{DEGREE SIGN} % 2s' % (transform.rotation.yaw, heading),
+            'Location:% 20s' % ('(% 5.1f, % 5.1f)' % (transform.location.x, transform.location.y)),
+            'GNSS:% 24s' % ('(% 2.6f, % 3.6f)' % (world.gnss_sensor.lat, world.gnss_sensor.lon)),
+            'Height:  % 18.0f m' % transform.location.z,
+            '']
+        if isinstance(control, carla.VehicleControl):
+            self._info_text += [
+                ('Throttle:', control.throttle, 0.0, 1.0),
+                ('Steer:', control.steer, -1.0, 1.0),
+                ('Brake:', control.brake, 0.0, 1.0),
+                ('Reverse:', control.reverse),
+                ('Hand brake:', control.hand_brake),
+                ('Manual:', control.manual_gear_shift),
+                'Gear:        %s' % {-1: 'R', 0: 'N'}.get(control.gear, control.gear)]
+        elif isinstance(control, carla.WalkerControl):
+            self._info_text += [
+                ('Speed:', control.speed, 0.0, 5.556),
+                ('Jump:', control.jump)]
+        self._info_text += [
+            '',
+            'Collision:',
+            collision,
+            '',
+            'Number of vehicles: % 8d' % len(vehicles)]
+
+        if len(vehicles) > 1:
+            self._info_text += ['Nearby vehicles:']
+
+        def dist(l):
+            return math.sqrt((l.x - transform.location.x)**2 + (l.y - transform.location.y)
+                             ** 2 + (l.z - transform.location.z)**2)
+        vehicles = [(dist(x.get_location()), x) for x in vehicles if x.id != world.player.id]
+
+        for dist, vehicle in sorted(vehicles):
+            if dist > 200.0:
+                break
+            vehicle_type = get_actor_display_name(vehicle, truncate=22)
+            self._info_text.append('% 4dm %s' % (dist, vehicle_type))
+
+    def toggle_info(self):
+        """Toggle info on or off"""
+        self._show_info = not self._show_info
+
+    def notification(self, text, seconds=2.0):
+        """Notification text"""
+        self._notifications.set_text(text, seconds=seconds)
+
+    def error(self, text):
+        """Error text"""
+        self._notifications.set_text('Error: %s' % text, (255, 0, 0))
+
+    def render(self, display):
+        """Render for HUD class"""
+        if self._show_info:
+            info_surface = pygame.Surface((220, self.dim[1]))
+            info_surface.set_alpha(100)
+            display.blit(info_surface, (0, 0))
+            v_offset = 4
+            bar_h_offset = 100
+            bar_width = 106
+            for item in self._info_text:
+                if v_offset + 18 > self.dim[1]:
+                    break
+                if isinstance(item, list):
+                    if len(item) > 1:
+                        points = [(x + 8, v_offset + 8 + (1 - y) * 30) for x, y in enumerate(item)]
+                        pygame.draw.lines(display, (255, 136, 0), False, points, 2)
+                    item = None
+                    v_offset += 18
+                elif isinstance(item, tuple):
+                    if isinstance(item[1], bool):
+                        rect = pygame.Rect((bar_h_offset, v_offset + 8), (6, 6))
+                        pygame.draw.rect(display, (255, 255, 255), rect, 0 if item[1] else 1)
+                    else:
+                        rect_border = pygame.Rect((bar_h_offset, v_offset + 8), (bar_width, 6))
+                        pygame.draw.rect(display, (255, 255, 255), rect_border, 1)
+                        fig = (item[1] - item[2]) / (item[3] - item[2])
+                        if item[2] < 0.0:
+                            rect = pygame.Rect(
+                                (bar_h_offset + fig * (bar_width - 6), v_offset + 8), (6, 6))
+                        else:
+                            rect = pygame.Rect((bar_h_offset, v_offset + 8), (fig * bar_width, 6))
+                        pygame.draw.rect(display, (255, 255, 255), rect)
+                    item = item[0]
+                if item:  # At this point has to be a str.
+                    surface = self._font_mono.render(item, True, (255, 255, 255))
+                    display.blit(surface, (8, v_offset))
+                v_offset += 18
+        self._notifications.render(display)
+        self.help.render(display)
+
+# ==============================================================================
+# -- FadingText ----------------------------------------------------------------
+# ==============================================================================
+
+
+class FadingText(object):
+    """ Class for fading text """
+
+    def __init__(self, font, dim, pos):
+        """Constructor method"""
+        self.font = font
+        self.dim = dim
+        self.pos = pos
+        self.seconds_left = 0
+        self.surface = pygame.Surface(self.dim)
+
+    def set_text(self, text, color=(255, 255, 255), seconds=2.0):
+        """Set fading text"""
+        text_texture = self.font.render(text, True, color)
+        self.surface = pygame.Surface(self.dim)
+        self.seconds_left = seconds
+        self.surface.fill((0, 0, 0, 0))
+        self.surface.blit(text_texture, (10, 11))
+
+    def tick(self, _, clock):
+        """Fading text method for every tick"""
+        delta_seconds = 1e-3 * clock.get_time()
+        self.seconds_left = max(0.0, self.seconds_left - delta_seconds)
+        self.surface.set_alpha(500.0 * self.seconds_left)
+
+    def render(self, display):
+        """Render fading text method"""
+        display.blit(self.surface, self.pos)
+
+# ==============================================================================
+# -- HelpText ------------------------------------------------------------------
+# ==============================================================================
+
+
+class HelpText(object):
+    """ Helper class for text render"""
+
+    def __init__(self, font, width, height):
+        """Constructor method"""
+        lines = __doc__.split('\n')
+        self.font = font
+        self.dim = (680, len(lines) * 22 + 12)
+        self.pos = (0.5 * width - 0.5 * self.dim[0], 0.5 * height - 0.5 * self.dim[1])
+        self.seconds_left = 0
+        self.surface = pygame.Surface(self.dim)
+        self.surface.fill((0, 0, 0, 0))
+        for i, line in enumerate(lines):
+            text_texture = self.font.render(line, True, (255, 255, 255))
+            self.surface.blit(text_texture, (22, i * 22))
+            self._render = False
+        self.surface.set_alpha(220)
+
+    def toggle(self):
+        """Toggle on or off the render help"""
+        self._render = not self._render
+
+    def render(self, display):
+        """Render help text method"""
+        if self._render:
+            display.blit(self.surface, self.pos)
+
+# ==============================================================================
+# -- CollisionSensor -----------------------------------------------------------
+# ==============================================================================
+
+
+class CollisionSensor(object):
+    """ Class for collision sensors"""
+
+    def __init__(self, parent_actor, hud):
+        """Constructor method"""
+        self.sensor = None
+        self.history = []
+        self._parent = parent_actor
+        self.hud = hud
+        world = self._parent.get_world()
+        blueprint = world.get_blueprint_library().find('sensor.other.collision')
+        self.sensor = world.spawn_actor(blueprint, carla.Transform(), attach_to=self._parent)
+        # We need to pass the lambda a weak reference to
+        # self to avoid circular reference.
+        weak_self = weakref.ref(self)
+        self.sensor.listen(lambda event: CollisionSensor._on_collision(weak_self, event))
+
+    def get_collision_history(self):
+        """Gets the history of collisions"""
+        history = collections.defaultdict(int)
+        for frame, intensity in self.history:
+            history[frame] += intensity
+        return history
+
+    @staticmethod
+    def _on_collision(weak_self, event):
+        """On collision method"""
+        self = weak_self()
+        if not self:
+            return
+        actor_type = get_actor_display_name(event.other_actor)
+        self.hud.notification('Collision with %r' % actor_type)
+        impulse = event.normal_impulse
+        intensity = math.sqrt(impulse.x ** 2 + impulse.y ** 2 + impulse.z ** 2)
+        self.history.append((event.frame, intensity))
+        if len(self.history) > 4000:
+            self.history.pop(0)
+
+# ==============================================================================
+# -- LaneInvasionSensor --------------------------------------------------------
+# ==============================================================================
+
+
+class LaneInvasionSensor(object):
+    """Class for lane invasion sensors"""
+
+    def __init__(self, parent_actor, hud):
+        """Constructor method"""
+        self.sensor = None
+        self._parent = parent_actor
+        self.hud = hud
+        world = self._parent.get_world()
+        bp = world.get_blueprint_library().find('sensor.other.lane_invasion')
+        self.sensor = world.spawn_actor(bp, carla.Transform(), attach_to=self._parent)
+        # We need to pass the lambda a weak reference to self to avoid circular
+        # reference.
+        weak_self = weakref.ref(self)
+        self.sensor.listen(lambda event: LaneInvasionSensor._on_invasion(weak_self, event))
+
+    @staticmethod
+    def _on_invasion(weak_self, event):
+        """On invasion method"""
+        self = weak_self()
+        if not self:
+            return
+        lane_types = set(x.type for x in event.crossed_lane_markings)
+        text = ['%r' % str(x).split()[-1] for x in lane_types]
+        self.hud.notification('Crossed line %s' % ' and '.join(text))
+
+# ==============================================================================
+# -- GnssSensor --------------------------------------------------------
+# ==============================================================================
+
+
+class GnssSensor(object):
+    """ Class for GNSS sensors"""
+
+    def __init__(self, parent_actor):
+        """Constructor method"""
+        self.sensor = None
+        self._parent = parent_actor
+        self.lat = 0.0
+        self.lon = 0.0
+        world = self._parent.get_world()
+        blueprint = world.get_blueprint_library().find('sensor.other.gnss')
+        self.sensor = world.spawn_actor(blueprint, carla.Transform(carla.Location(x=1.0, z=2.8)),
+                                        attach_to=self._parent)
+        # We need to pass the lambda a weak reference to
+        # self to avoid circular reference.
+        weak_self = weakref.ref(self)
+        self.sensor.listen(lambda event: GnssSensor._on_gnss_event(weak_self, event))
+
+    @staticmethod
+    def _on_gnss_event(weak_self, event):
+        """GNSS method"""
+        self = weak_self()
+        if not self:
+            return
+        self.lat = event.latitude
+        self.lon = event.longitude
+
+# ==============================================================================
+# -- CameraManager -------------------------------------------------------------
+# ==============================================================================
+
+
+class CameraManager(object):
+    """ Class for camera management"""
+
+    def __init__(self, parent_actor, hud):
+        """Constructor method"""
+        self.sensor = None
+        self.surface = None
+        self._parent = parent_actor
+        self.hud = hud
+        self.recording = False
+        bound_x = 0.5 + self._parent.bounding_box.extent.x
+        bound_y = 0.5 + self._parent.bounding_box.extent.y
+        bound_z = 0.5 + self._parent.bounding_box.extent.z
+        attachment = carla.AttachmentType
+        self._camera_transforms = [
+            (carla.Transform(carla.Location(x=-2.0*bound_x, y=+0.0*bound_y, z=2.0*bound_z), carla.Rotation(pitch=8.0)), attachment.SpringArmGhost),
+            (carla.Transform(carla.Location(x=+0.8*bound_x, y=+0.0*bound_y, z=1.3*bound_z)), attachment.Rigid),
+            (carla.Transform(carla.Location(x=+1.9*bound_x, y=+1.0*bound_y, z=1.2*bound_z)), attachment.SpringArmGhost),
+            (carla.Transform(carla.Location(x=-2.8*bound_x, y=+0.0*bound_y, z=4.6*bound_z), carla.Rotation(pitch=6.0)), attachment.SpringArmGhost),
+            (carla.Transform(carla.Location(x=-1.0, y=-1.0*bound_y, z=0.4*bound_z)), attachment.Rigid)]
+
+        self.transform_index = 1
+        self.sensors = [
+            ['sensor.camera.rgb', cc.Raw, 'Camera RGB'],
+            ['sensor.camera.depth', cc.Raw, 'Camera Depth (Raw)'],
+            ['sensor.camera.depth', cc.Depth, 'Camera Depth (Gray Scale)'],
+            ['sensor.camera.depth', cc.LogarithmicDepth, 'Camera Depth (Logarithmic Gray Scale)'],
+            ['sensor.camera.semantic_segmentation', cc.Raw, 'Camera Semantic Segmentation (Raw)'],
+            ['sensor.camera.semantic_segmentation', cc.CityScapesPalette,
+             'Camera Semantic Segmentation (CityScapes Palette)'],
+            ['sensor.lidar.ray_cast', None, 'Lidar (Ray-Cast)']]
+        world = self._parent.get_world()
+        bp_library = world.get_blueprint_library()
+        for item in self.sensors:
+            blp = bp_library.find(item[0])
+            if item[0].startswith('sensor.camera'):
+                blp.set_attribute('image_size_x', str(hud.dim[0]))
+                blp.set_attribute('image_size_y', str(hud.dim[1]))
+            elif item[0].startswith('sensor.lidar'):
+                blp.set_attribute('range', '50')
+            item.append(blp)
+        self.index = None
+
+    def toggle_camera(self):
+        """Activate a camera"""
+        self.transform_index = (self.transform_index + 1) % len(self._camera_transforms)
+        self.set_sensor(self.index, notify=False, force_respawn=True)
+
+    def set_sensor(self, index, notify=True, force_respawn=False):
+        """Set a sensor"""
+        index = index % len(self.sensors)
+        needs_respawn = True if self.index is None else (
+            force_respawn or (self.sensors[index][0] != self.sensors[self.index][0]))
+        if needs_respawn:
+            if self.sensor is not None:
+                self.sensor.destroy()
+                self.surface = None
+            self.sensor = self._parent.get_world().spawn_actor(
+                self.sensors[index][-1],
+                self._camera_transforms[self.transform_index][0],
+                attach_to=self._parent,
+                attachment_type=self._camera_transforms[self.transform_index][1])
+
+            # We need to pass the lambda a weak reference to
+            # self to avoid circular reference.
+            weak_self = weakref.ref(self)
+            self.sensor.listen(lambda image: CameraManager._parse_image(weak_self, image))
+        if notify:
+            self.hud.notification(self.sensors[index][2])
+        self.index = index
+
+    def next_sensor(self):
+        """Get the next sensor"""
+        self.set_sensor(self.index + 1)
+
+    def toggle_recording(self):
+        """Toggle recording on or off"""
+        self.recording = not self.recording
+        self.hud.notification('Recording %s' % ('On' if self.recording else 'Off'))
+
+    def render(self, display):
+        """Render method"""
+        if self.surface is not None:
+            display.blit(self.surface, (0, 0))
+
+    @staticmethod
+    def _parse_image(weak_self, image):
+        self = weak_self()
+        if not self:
+            return
+        if self.sensors[self.index][0].startswith('sensor.lidar'):
+            points = np.frombuffer(image.raw_data, dtype=np.dtype('f4'))
+            points = np.reshape(points, (int(points.shape[0] / 4), 4))
+            lidar_data = np.array(points[:, :2])
+            lidar_data *= min(self.hud.dim) / 100.0
+            lidar_data += (0.5 * self.hud.dim[0], 0.5 * self.hud.dim[1])
+            lidar_data = np.fabs(lidar_data)  # pylint: disable=assignment-from-no-return
+            lidar_data = lidar_data.astype(np.int32)
+            lidar_data = np.reshape(lidar_data, (-1, 2))
+            lidar_img_size = (self.hud.dim[0], self.hud.dim[1], 3)
+            lidar_img = np.zeros(lidar_img_size)
+            lidar_img[tuple(lidar_data.T)] = (255, 255, 255)
+            self.surface = pygame.surfarray.make_surface(lidar_img)
+        else:
+            image.convert(self.sensors[self.index][1])
+            array = np.frombuffer(image.raw_data, dtype=np.dtype("uint8"))
+            array = np.reshape(array, (image.height, image.width, 4))
+            array = array[:, :, :3]
+            array = array[:, :, ::-1]
+            self.surface = pygame.surfarray.make_surface(array.swapaxes(0, 1))
+        if self.recording:
+            image.save_to_disk('_out/%08d' % image.frame)
+
+
+# ==============================================================================
+# -- Vehicle PID Controller ---------------------------------------------------------
+# ==============================================================================
+
+class FakeWaypoint:
+    def __init__(self, transform):
+        self.transform = transform
+
+def follow_path_with_pid(vehicle, path, speed=20):
+    """
+    Generator to follow a custom path using PID controller.
+    Each iteration yields a control command to apply to the vehicle.
+    """
+    controller = VehiclePIDController(
+        vehicle,
+        args_lateral={'K_P': 1.0, 'K_D': 0.0, 'K_I': 0.0},
+        args_longitudinal={'K_P': 1.0, 'K_D': 0.0, 'K_I': 0.0}
+    )
+
+    index = 0
+    num_points = len(path.x)
+
+    # Convert from grid map to world coordinates
+    def grid_to_world(gx, gy, center, cell_size):
+        x = (gx - center) * cell_size
+        y = (gy - center) * cell_size
+        return x, y
+    
+
+    grid_size = 500  # Assuming a grid size of 500x500
+    center = grid_size // 2
+    #center = getattr(path, 'center', 100)
+    cell_size = 0.5  # Assuming each cell in the grid corresponds to 0.5 meters
+
+    while index < num_points:
+        # Generate world coordinate
+        world_x, world_y = grid_to_world(path.x[index], path.y[index], center, cell_size)
+        target_location = carla.Location(x=world_x, y=world_y, z=vehicle.get_location().z)
+        target_yaw = path.yaw[index]
+        target_rotation = carla.Rotation(yaw=target_yaw)
+        target_transform = carla.Transform(target_location, target_rotation)
+
+        # Wrap in a fake waypoint object so run_step doesn't crash
+        fake_wp = FakeWaypoint(target_transform)
+
+        # Get control from PID
+        control = controller.run_step(speed, fake_wp)
+        yield control
+
+        # Advance to next point if close enough
+        if vehicle.get_location().distance(target_location) < 1.0:
+            index += 1
+
+
+# ==============================================================================
+# -- Game Loop ---------------------------------------------------------
+# ==============================================================================
+
+
+def game_loop(args):
+    """
+    Main loop of the simulation. It handles updating all the HUD information,
+    ticking the agent and, if needed, the world.
+    """
+
+
+    # app = QApplication([])
+    # # Force initial GUI update
+    # QApplication.processEvents()
+    
+    subscriber = Subscriber()
+
+    pygame.init()
+    pygame.font.init()
+
+    world = None
+
+    try:
+        if args.seed:
+            random.seed(args.seed)
+
+        client = carla.Client(args.host, args.port)
+        client.set_timeout(60.0)
+
+        traffic_manager = client.get_trafficmanager()
+        sim_world = client.get_world()
+
+        occupationgrid = OccupationGrid(sim_world, cell_size=0.5)
+        grid_map = occupationgrid.grid
+
+        #occupationgrid.start_visualization()
+
+        if args.sync:
+            settings = sim_world.get_settings()
+            settings.synchronous_mode = True
+            settings.fixed_delta_seconds = 0.05
+            sim_world.apply_settings(settings)
+
+            traffic_manager.set_synchronous_mode(True)
+
+        display = pygame.display.set_mode(
+            (args.width, args.height),
+            pygame.HWSURFACE | pygame.DOUBLEBUF)
+
+        hud = HUD(args.width, args.height)
+        world = World(client.get_world(), hud, args)
+        controller = KeyboardControl(world)
+
+        # if args.agent == "Basic":
+        #     agent = BasicAgent(world.player, 30)
+        #     agent.follow_speed_limits(True)
+        # elif args.agent == "Constant":
+        #     agent = ConstantVelocityAgent(world.player, 30)
+        #     ground_loc = world.world.ground_projection(world.player.get_location(), 5)
+        #     if ground_loc:
+        #         world.player.set_location(ground_loc.location + carla.Location(z=0.01))
+        #     agent.follow_speed_limits(True)
+        # elif args.agent == "Behavior":
+        #     agent = BehaviorAgent(world.player, behavior=args.behavior)
+
+        # Set the agent destination
+        spawn_points = world.map.get_spawn_points()
+        # destination = random.choice(spawn_points).location
+        destination = spawn_points[10].location
+        destination = carla.Location(x=26, y=30, z=0)
+        # agent.set_destination(destination)
+        # clock = pygame.time.Clock()
+
+        # Send world.player coordinates and yaw to hybrid_astar
+        player_transform = world.player.get_transform()
+        player_x = player_transform.location.x
+        player_y = player_transform.location.y
+        player_yaw = math.radians(player_transform.rotation.yaw)
+        destination_transform = carla.Transform(destination, world.player.get_transform().rotation)
+        destination_x = destination_transform.location.x
+        destination_y = destination_transform.location.y
+        destination_yaw = math.radians(player_transform.rotation.yaw)
+
+        path = hybrid_astar.path_finder(player_x, player_y, player_yaw, destination_x, destination_y, destination_yaw, grid_map)
+
+        # Initialize Qt in the main thread
+        app = QApplication([])
+        test = CommonRoadSceneGenerator(world.player)
+        window = CommonRoadVisualizer(test.base_config, test.scenario, test.planning_problem, test.world, world.player)
+        window.setGeometry(100, 100, 800, 600)
+        window.show()
+            # Force initial GUI update
+        QApplication.processEvents()
+
+        # Initialize path follower
+        path_follower = follow_path_with_pid(world.player, path, speed=6)
+        clock = pygame.time.Clock()
+
+        #test = CommonRoadSceneGenerator()
+        #test.run()
+
+
+        # test = CommonRoadSceneGenerator()
+        # vis_thread = VisualizationThread(
+        #     test.base_config,
+        #     test.scenario,
+        #     test.planning_problem,
+        #     test.world
+        # )
+        # vis_thread.start()
+        # subscriber = Subscriber()
+        
+        while True:
+            if subscriber.receive_messages():
+
+                # Process Qt events in each iteration
+                # QApplication.processEvents()
+                clock.tick()
+                # if args.sync:
+                #     world.world.tick()
+                # else:
+                #     world.world.wait_for_tick()
+                if controller.parse_events():
+                    return
+                
+
+                world.tick(clock)
+                world.render(display)
+                pygame.display.flip()
+
+                # if agent.done():
+                #     if args.loop:
+                #         agent.set_destination(random.choice(spawn_points).location)
+                #         world.hud.notification("Target reached", seconds=4.0)
+                #         print("The target has been reached, searching for another target")
+                #     else:
+                #         print("The target has been reached, stopping the simulation")
+                #         break
+
+                try:
+                    control = next(path_follower)
+                    control.manual_gear_shift = False
+                    world.player.apply_control(control)
+                except StopIteration:
+                    print("Reached the end of the path.")
+                    break
+                #test.window.update_visualization()
+                        # Update visualization
+                polygons = window.update_visualization()
+
+                reach_occupancygrid, car_box_index = occupationgrid.generate_occupation_grid(world.player, polygons)
+                test_reach_occupancygrid = reach_occupancygrid.copy().astype(np.int8)
+                #print('car_box_index:', car_box_index)
+                # Mark the path in the occupancy grid as -2
+                for gx, gy in zip(path.x, path.y):
+                    # Only mark the path from the car's current grid position (car_box_index) to the end goal
+                    if car_box_index is not None and len(path.x) > 0:
+                        try:
+                            # Find the index in the path closest to the car's grid position
+                            #print("car_box_index:", car_box_index)
+                            # car_box_index is a list of (x, y) tuples representing the car's bounding box in the grid
+                            # To determine the front side, find the point in car_box_index closest to the first path point (car is heading toward path[0])
+                            # or, if the car is following the path, use the closest to the current path segment
+
+                            # Use the first point in the path as the direction reference
+                            path_head = np.array([path.x[0], path.y[0]])
+                            # Find the car_box_index point closest to the path head
+                            car_box_array = np.array(car_box_index)
+                            dists_to_path_head = np.linalg.norm(car_box_array - path_head, axis=1)
+                            front_idx = int(np.argmin(dists_to_path_head))
+                            car_gx, car_gy = car_box_index[front_idx]
+
+                            dists = [(gx - car_gx) ** 2 + (gy - car_gy) ** 2 for gx, gy in zip(path.x, path.y)]
+                            start_idx = int(np.argmin(dists))
+                            # Only mark from car position to the end of the path
+                            for gx, gy in zip(path.x[start_idx:], path.y[start_idx:]):
+                                if 0 <= gx < reach_occupancygrid.shape[0] and 0 <= gy < reach_occupancygrid.shape[1]:
+                                    if gx % 1 > 0.5:
+                                        grid_x = int(np.ceil(gx))
+                                    else:
+                                        grid_x = int(np.floor(gx))
+                                    if gy % 1 > 0.5:
+                                        grid_y = int(np.ceil(gy))
+                                    else:
+                                        grid_y = int(np.floor(gy))
+                                    if test_reach_occupancygrid[grid_y, grid_x] != 2:
+                                        test_reach_occupancygrid[grid_y, grid_x] = -2
+                        except Exception as e:
+                            print("Error marking path from car to goal:", e)
+                    
+                    # if 0 <= gx < reach_occupancygrid.shape[0] and 0 <= gy < reach_occupancygrid.shape[1]:
+                    #     #print('path:',gx, gy)
+                    #     if gx % 1 > 0.5:
+                    #         grid_x = int(np.ceil(gx))
+                    #     else:
+                    #         grid_x = int(np.floor(gx))
+                    #     if gy % 1 > 0.5:
+                    #         grid_y = int(np.ceil(gy))
+                    #     else:
+                    #         grid_y = int(np.floor(gy))
+                    #     test_reach_occupancygrid[grid_y, grid_x] = 2
+
+
+                
+                sent = subscriber.send_conflict(test_reach_occupancygrid)
+
+                if sent:
+                    print("Conflict sent to subscriber")
+                    final_occupancy_grid = subscriber.receive_solution()
+                    if final_occupancy_grid is not None:
+                        print("Received final occupancy grid from subscriber")
+                        print("Control side: conflict_area : ", final_occupancy_grid['conflict_area'].shape)
+                        print("Control side: new_path_point : ", final_occupancy_grid['new_path_point'])
+                        # Update the visualization with the final occupancy grid
+                        #print("control side: ", final_occupancy_grid.shape)
+                    else:
+                        print("Control side: No Conflict detected, proceeding with the path")
+
+
+
+                # if sent:
+                #     print("Conflict sent to subscriber")
+                #     final_occupancy_grid = subscriber.receive_solution()
+                #     if final_occupancy_grid is not None:
+                #         if final_occupancy_grid == 'No Conflict':
+                #             print("Control side : No Conflict detected, proceeding with the path")
+                #         else:
+                #             print('Control side:', 'Shape of final occupancy grid :', final_occupancy_grid['conflict_area'].shape)
+                #             print("Control side: Conflict detected, waypoint: ", final_occupancy_grid['new_path_point'])
+                #         #print("Received final occupancy grid from subscriber")
+                #         # Update the visualization with the final occupancy grid
+                #         #print("control side: ", final_occupancy_grid.shape)
+                #     else:
+                #         print("Control side: No Conflict detected, proceeding with the path")
+
+
+                # if final_occupancy_grid is True:
+                #     print("control side: No Conflict")
+                # else:
+                #     print("control side: Conflict detected, stopping the vehicle")
+                #     print("control side: ", final_occupancy_grid.shape)
+                    #world.player.apply_control(carla.VehicleControl(throttle=0.0, brake=1.0))
+
+
+                #occupationgrid.update_visualization(world.player, 2, 200, polygons)
+                
+                # Process Qt events without blocking
+                QApplication.processEvents()
+
+                if subscriber.acknowledge_message():
+                    # Acknowledge the message to the subscriber
+                    print("Message acknowledged")
+                
+                # [Exit conditions]
+                if controller.parse_events():
+                    break
+            else:
+                time.sleep(0.1)
+                # Cleanup
+            # Close the subscriber connection
+            # subscriber.close()
+            # print("Subscriber closed")
+            app.quit()
+
+
+    finally:
+
+        # if world is not None:
+        #     settings = world.world.get_settings()
+        #     settings.synchronous_mode = False
+        #     settings.fixed_delta_seconds = None
+        #     world.world.apply_settings(settings)
+        #     traffic_manager.set_synchronous_mode(True)
+
+        #     world.destroy()
+        subscriber.close()
+        if world is not None and world.player is not None:
+            world.player.destroy()
+        pygame.quit()
+        occupationgrid.stop_visualization()
+
+
+# ==============================================================================
+# -- main() --------------------------------------------------------------
+# ==============================================================================
+
+
+def main():
+    """Main method"""
+
+    argparser = argparse.ArgumentParser(
+        description='CARLA Automatic Control Client')
+    argparser.add_argument(
+        '-v', '--verbose',
+        action='store_true',
+        dest='debug',
+        help='Print debug information')
+    argparser.add_argument(
+        '--host',
+        metavar='H',
+        default='127.0.0.1',
+        help='IP of the host server (default: 127.0.0.1)')
+    argparser.add_argument(
+        '-p', '--port',
+        metavar='P',
+        default=2000,
+        type=int,
+        help='TCP port to listen to (default: 2000)')
+    argparser.add_argument(
+        '--res',
+        metavar='WIDTHxHEIGHT',
+        default='1280x720',
+        help='Window resolution (default: 1280x720)')
+    argparser.add_argument(
+        '--sync',
+        action='store_true',
+        help='Synchronous mode execution')
+    argparser.add_argument(
+        '--filter',
+        metavar='PATTERN',
+        #default='vehicle.*',
+        default='vehicle.mini.cooper_s',
+        help='Actor filter (default: "vehicle.*")')
+    argparser.add_argument(
+        '--generation',
+        metavar='G',
+        default='2',
+        help='restrict to certain actor generation (values: "1","2","All" - default: "2")')
+    argparser.add_argument(
+        '-l', '--loop',
+        action='store_true',
+        dest='loop',
+        help='Sets a new random destination upon reaching the previous one (default: False)')
+    argparser.add_argument(
+        "-a", "--agent", type=str,
+        choices=["Behavior", "Basic", "Constant"],
+        help="select which agent to run",
+        default="Behavior")
+    argparser.add_argument(
+        '-b', '--behavior', type=str,
+        choices=["cautious", "normal", "aggressive"],
+        help='Choose one of the possible agent behaviors (default: normal) ',
+        default='normal')
+    argparser.add_argument(
+        '-s', '--seed',
+        help='Set seed for repeating executions (default: None)',
+        default=None,
+        type=int)
+
+    args = argparser.parse_args()
+
+    args.width, args.height = [int(x) for x in args.res.split('x')]
+
+    log_level = logging.DEBUG if args.debug else logging.INFO
+    logging.basicConfig(format='%(levelname)s: %(message)s', level=log_level)
+
+    logging.info('listening to server %s:%s', args.host, args.port)
+
+    print(__doc__)
+
+    try:
+        game_loop(args)
+
+    except KeyboardInterrupt:
+        print('\nCancelled by user. Bye!')
+
+
+if __name__ == '__main__':
+    main()

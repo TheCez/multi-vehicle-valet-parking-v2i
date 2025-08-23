@@ -1,0 +1,91 @@
+debug:
+  ax_distance: 7
+  draw_icons: false
+  draw_lanelet_labels: false
+  draw_planning_problem: false
+  draw_ref_path: false
+  plot_azimuth: -120
+  plot_elevation: 30
+  save_config: 1
+  save_plots: 1
+  verbose_debug: 0
+  verbose_info: 1
+general:
+  path_logs: output/logs/
+  path_offline_data: output/offline_data/
+  path_output: output/valet_parking/
+  path_pickles: output/pickles/
+  path_scenario: scenarios/valet_parking.xml
+  path_scenarios: scenarios/
+name_scenario: valet_parking
+planning:
+  coordinate_system: CVLN
+  dt: 0.1
+  p_lat_initial: 0.09452164723808147
+  p_lon_initial: 53.92124866094504
+  reference_point: CENTER
+  step_start: 0
+  steps_computation: 20
+  uncertainty_p_lat: 0.01
+  uncertainty_p_lon: 0.01
+  uncertainty_v_lat: 0.01
+  uncertainty_v_lon: 0.01
+  v_lat_initial: 2.473931872865949
+  v_lon_initial: 9.689151721818478
+reachable_set:
+  consider_traffic: true
+  exclude_small_components_corridor: false
+  mode_computation: 2
+  mode_inflation: 1
+  mode_repartition: 2
+  n_multi_steps: 6
+  name_pickle_offline: offline_nt10_CVLN_alonmax11.5_alatmax2.0_vlonmax50.8_vlatmax4.0_ms6_dx0.5_ver0.0.1.pickle
+  num_threads: 4
+  path_to_lut: /home/thecez/thesis/commonroad_generator/external/matlab
+  prune_nodes_not_reaching_final_step: true
+  radius_terminal_split: 0.7
+  rasterize_exclude_static: true
+  rasterize_obstacles: false
+  size_grid: 0.2
+  size_grid_2nd: 0.05
+vehicle:
+  ego:
+    a_lat_max: 2.0
+    a_lat_min: -2.0
+    a_lon_max: 11.5
+    a_lon_min: -11.5
+    a_max: 8.0
+    circle_distance: 3.005333333333333
+    id_type_vehicle: 2
+    length: 4.508
+    radius_disc: 1.1011479363726646
+    radius_inflation: 0.805
+    v_lat_max: 4.0
+    v_lat_min: -4.0
+    v_lon_max: 50.8
+    v_lon_min: -13.9
+    v_max: 30.0
+    wb_front_axle: 1.1561957064
+    wb_rear_axle: 1.4227170936
+    wheelbase: 2.5789128
+    width: 1.61
+  other:
+    a_lat_max: 2.0
+    a_lat_min: -2.0
+    a_lon_max: 11.5
+    a_lon_min: -11.5
+    a_max: 8.0
+    circle_distance: 3.005333333333333
+    id_type_vehicle: 2
+    length: 4.508
+    radius_disc: 1.1011479363726646
+    radius_inflation: 0.805
+    v_lat_max: 4.0
+    v_lat_min: -4.0
+    v_lon_max: 50.8
+    v_lon_min: -13.9
+    v_max: 30.0
+    wb_front_axle: 1.1561957064
+    wb_rear_axle: 1.4227170936
+    wheelbase: 2.5789128
+    width: 1.61
