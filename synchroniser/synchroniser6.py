@@ -78,6 +78,8 @@ class Master:
         self.conflict_solved = None
         self.subscribers_data = {}
         self.overlap_obs = None
+        self.decision_to_make = True
+        self.training_data_no = 0
         
 
         if self.visualize:
@@ -127,6 +129,66 @@ class Master:
         np_ = vec(new)
         mask = diff_mask & (np_ > vp)
         return mask, new[mask]
+    
+    def decision_maker_helper(self, grid, direction):
+        # 1. find leftmost column index of any –2
+        path_locs = np.where(grid == -2)
+        if path_locs[1].size == 0:
+            raise ValueError("No -2 found in grid")
+        sidemost = path_locs[1].min()
+
+        # 2. build a mask for any 3 in columns strictly left of that
+        cols = np.arange(grid.shape[1])[None, :]    # shape (1, W)
+        if direction == 'L':
+            mask = (grid == 3) & (cols < sidemost)
+        else:  # direction == 'R'
+            mask = (grid == 3) & (cols > sidemost)
+
+        # 3. zero out those positions
+        grid[mask] = 0
+        return grid
+    
+    def check_if_car_fit(self, grid):
+        """
+        Check if the pattern of 2s can fit anywhere within the 3s regions.
+        Returns True if fit is possible, False otherwise.
+        """
+        # Get mask of 2s and 3s
+        twos_mask = (grid == 2)
+        threes_mask = (grid == 3)
+        
+        if not np.any(twos_mask):
+            return True  # No 2s to fit
+        if not np.any(threes_mask):
+            return False  # No 3s available for fitting
+        
+        # Get bounding box of the 2s pattern
+        twos_positions = np.argwhere(twos_mask)
+        min_row, min_col = twos_positions.min(axis=0)
+        max_row, max_col = twos_positions.max(axis=0)
+        
+        # Extract the 2s pattern (relative to its bounding box)
+        pattern_height = max_row - min_row + 1
+        pattern_width = max_col - min_col + 1
+        twos_pattern = twos_mask[min_row:max_row+1, min_col:max_col+1]
+        
+        # Try to fit the pattern at every possible position in the 3s
+        grid_height, grid_width = grid.shape
+        
+        for start_row in range(grid_height - pattern_height + 1):
+            for start_col in range(grid_width - pattern_width + 1):
+                # Extract the region from the 3s mask
+                end_row = start_row + pattern_height
+                end_col = start_col + pattern_width
+                region_threes = threes_mask[start_row:end_row, start_col:end_col]
+                
+                # Check if the 2s pattern fits completely within 3s
+                if np.all(region_threes[twos_pattern]):
+                    #print(f"Fit found at position ({start_row}, {start_col})")
+                    return True  # Found a fit!
+        
+        #print("No fit found")
+        return False  # No fit found
 
     def verify_acknowledgment(self):
         self.waiting_for_ack = Master.no_of_subscribers
@@ -136,6 +198,7 @@ class Master:
         poller = zmq.Poller()
         poller.register(self.sync_socket, zmq.POLLIN)
         occupancy_grids = {}
+        decision_grids = {}
 
         while (self.waiting_for_ack > 0 or self.conflict_counter > 0) and (time.time() - start_time) < timeout:
             try:
@@ -153,7 +216,8 @@ class Master:
                         
                         if len(parts) > 1:
                             subscriber_id, grid = pickle.loads(parts[1])
-                            occupancy_grids[subscriber_id] = grid
+                            occupancy_grids[subscriber_id] = grid[0]
+                            decision_grids[subscriber_id] = grid[1]
                             self.sync_socket.send(b"GRID_RECEIVED", zmq.NOBLOCK)
                         else:
                             self.sync_socket.send(b"ERROR_MISSING_DATA", zmq.NOBLOCK)
@@ -180,6 +244,9 @@ class Master:
                                     grid[grid == 2] = new_car
                                     grid[grid == 3] = new_reach
                                     grid[grid == -2] = new_path
+                                    # decision_grids[subscriber_id][decision_grids[subscriber_id] == 2] = new_car
+                                    # decision_grids[subscriber_id][decision_grids[subscriber_id] == 3] = new_reach
+                                    # decision_grids[subscriber_id][decision_grids[subscriber_id] == -2] = new_path
                                     self.subscribers_data[subscriber_id] = {
                                         'car_value': new_car,
                                         'car_reach_value': new_reach,
@@ -190,6 +257,9 @@ class Master:
                                     grid[grid == 2] = sd['car_value']
                                     grid[grid == 3] = sd['car_reach_value']
                                     grid[grid == -2] = sd['path_value']
+                                    # decision_grids[subscriber_id][decision_grids[subscriber_id] == 2] = sd['car_value']
+                                    # decision_grids[subscriber_id][decision_grids[subscriber_id] == 3] = sd['car_reach_value']
+                                    # decision_grids[subscriber_id][decision_grids[subscriber_id] == -2] = sd['path_value']
 
 
 
@@ -201,7 +271,7 @@ class Master:
                             vis_grid = grids[0].copy()
                             conflict_mask = np.zeros(shape, dtype=bool)
 
-
+                            # Merge all grids
                             significant_mask = np.zeros(shape, dtype=bool)
                             for grid in grids[1:]:
                                 # Update merged + detect conflict
@@ -225,10 +295,18 @@ class Master:
                                 pmask, pvals = self._priority_update(vis_grid, grid, diff)
                                 vis_grid[pmask] = pvals
 
+
+                            
+
+                            # if not os.path.exists("fast_grid"):
+                            #     os.makedirs("fast_grid")
+
                             # np.save("fast_grid/vis_grid.npy", vis_grid)
+                            visualization_grid_view = vis_grid.copy()
                             
                             # Process conflicts
                             if conflict_mask.any():
+
                                 #print("Conflicts detected, solving...")
                                 
                                 if self.overlap_obs is None:
@@ -246,10 +324,97 @@ class Master:
 
                                 conflict_area = vis_grid[min_r:max_r+1, min_c:max_c+1]
 
+                                if self.decision_to_make:
+                                    
+                                    # if not os.path.exists("decision_grids"):
+                                    #     os.makedirs("decision_grids")
+
+                                    no_of_cars = Master.no_of_subscribers - 1
+
+                                    for subscriber_id, grid in decision_grids.items():
+                                        grid = grid[min_r:max_r+1, min_c:max_c+1]
+                                        indices = np.argwhere(grid == -2)
+                                        #print(len(indices))
+                                        if indices.size > 0:
+                                            first_idx = indices[0]
+                                            last_idx = indices[-1]
+                                            neighbors = []
+                                            for idx in [first_idx, last_idx]:
+                                                r, c = idx
+                                                for dr, dc in [(-1,0),(1,0),(0,-1),(0,1)]:
+                                                    nr, nc = r+dr, c+dc
+                                                    if 0 <= nr < grid.shape[0] and 0 <= nc < grid.shape[1]:
+                                                        neighbors.append((nr, nc))
+                                                    else:
+                                                        neighbors.append(None)
+                                            # Check which neighbor has value 2
+                                            #print(neighbors)
+                                            direction = None
+                                            for idx, neighbor in enumerate(neighbors):
+                                                if neighbor is not None:
+                                                    nr, nc = neighbor
+                                                    #print(nr, nc, grid[nr, nc])
+                                                    if grid[nr, nc] == 2:
+                                                        if (idx+1)%4 == 1:  # top neighbor
+                                                            #print("top")
+                                                            direction = 'R'
+                                                        elif (idx+1)%4 == 2:  # bottom neighbor
+                                                            #print("bottom")
+                                                            direction = 'L'
+                                                        elif (idx+1)%4 == 3:  # left neighbor
+                                                            #print("left")
+                                                            direction = 'U'
+                                                        elif (idx+1)%4 == 4:  # right neighbor
+                                                            #print("right")
+                                                            direction = 'D'
+                                                        else:
+                                                            print("No direction found")
+                                                        break
+                                            # neighbors now contains the up/down/left/right neighbors of first and last indices
+                                        decision_grid = self.decision_maker_helper(grid, direction=direction)
+                                        check_fit = self.check_if_car_fit(decision_grid)
+                                        if check_fit:
+                                            car = ((Master.no_of_subscribers - 1) * 2) + 2
+                                            self.subscribers_data[subscriber_id] = {
+                                            'car_value': car,
+                                            'car_reach_value': car + 1,
+                                            'path_value': -car
+                                            }
+                                        else:
+                                            car = ((no_of_cars - 1) * 2) + 2
+                                            self.subscribers_data[subscriber_id] = {
+                                            'car_value': car,
+                                            'car_reach_value': car + 1,
+                                            'path_value': -car
+                                            }
+                                            no_of_cars -= 1                                            
+
+
+
+                                        #np.save(f"decision_grids/decision_grids_{subscriber_id}.npy", decision_grid)
+                                    #print("Decisions saved for all subscribers.")
+                                    self.decision_to_make = False
+
                                 # self.oc.update_visualization2(current_grid=conflict_area)
                                 # self.conflict_solved = {subscriber_id: 'No Conflict' for subscriber_id in occupancy_grids.keys()}
+
+                                conflict_area_temp = conflict_area.copy()
                                 
-                                conflict_area, new_path_point = solve_conflict(conflict_area)
+                                conflict_area, new_path_point, waypoint_og = solve_conflict(conflict_area)
+
+                                if waypoint_og is not None:
+                                    if not os.path.exists("training_data"):
+                                        os.makedirs("training_data")
+                                    np.save(f"training_data/visualization_{self.training_data_no}", conflict_area_temp)
+                                    self.training_data_no += 1
+                                    with open("training_data/waypoints.txt", "a") as f:
+                                        f.write(f"{waypoint_og[0]},{waypoint_og[1]}\n")
+                                        #f.write(f"{waypoint_og[0] + min_r},{waypoint_og[1] + min_c}\n")
+                                
+
+                                visualization_grid_view[waypoint_og[0] + min_r, waypoint_og[1] + min_c] = 7
+           
+
                                 # self.conflict_solved = {}
                                 # sub_id = None
                                 # print('New path point:', new_path_point)
@@ -300,7 +465,8 @@ class Master:
                                 
                             #self.oc.update_visualization2(current_grid=vis_grid)
                             if self.visualize:
-                                self.oc.update_visualization2(current_grid=vis_grid)
+                                #self.oc.update_visualization2(current_grid=vis_grid)
+                                self.oc.update_visualization2(current_grid=visualization_grid_view)
 
                             #     if len(occupancy_grids) == 1:
                             #         #print("Only one occupancy grid received, no conflicts to resolve.")

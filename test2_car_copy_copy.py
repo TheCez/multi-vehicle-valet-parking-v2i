@@ -71,7 +71,7 @@ from PyQt6.QtWidgets import QApplication
 from mp_visualizer.CommonRoadVisualizer import CommonRoadVisualizer
 from PyQt6.QtCore import QTimer
 from VisualizationThread import VisualizationThread
-from synchroniser.synchroniser4 import Subscriber
+from synchroniser.synchroniser6 import Subscriber
 import time
 from occupation_grid.occupation_grid_with_grid_generator.occupation_grid import OccupationGrid
 from hybid_a_star_agent.MotionPlanning.HybridAstarPlanner import hybrid_astar
@@ -898,6 +898,9 @@ def stitch_paths(path, updated_path, conflict_area_bounds, padding):
 
     return new_path
 
+# def mark_parking_lines_on_grid(grid, scenario):
+
+
 
 # ==============================================================================
 # -- Game Loop ---------------------------------------------------------
@@ -1011,6 +1014,9 @@ def game_loop(args):
             # Force initial GUI update
         QApplication.processEvents()
 
+        scenario = test.scenario
+
+
         # Initialize path follower
         path_follower = follow_path_with_pid(world.player, path, speed=6)
         clock = pygame.time.Clock()
@@ -1086,11 +1092,16 @@ def game_loop(args):
                 #test.window.update_visualization()
                         # Update visualization
                 reachability_calculation_start = time.time()
-                polygons = window.update_visualization()
+                # Get all car objects except the ego vehicle
+                all_vehicles = world.world.get_actors().filter('vehicle.*')
+                other_cars = [v for v in all_vehicles if v.id != world.player.id]
+                polygons,  decision_polygons = window.update_visualization(other_cars=other_cars)
                 reachability_calculation_end = time.time()
                 occupationgrid_generation_start = time.time()
                 reach_occupancygrid, car_box_index = occupationgrid.generate_occupation_grid(world.player, polygons)
-                
+
+                decision_occupancygrid, _ = occupationgrid.generate_occupation_grid(world.player, decision_polygons)
+                decision_occupancygrid = decision_occupancygrid.copy().astype(np.int8)
                 test_reach_occupancygrid = reach_occupancygrid.copy().astype(np.int8)
                 # Mark the path in the occupancy grid as -2
                 path_copy = copy.deepcopy(path)
@@ -1115,6 +1126,7 @@ def game_loop(args):
                                 grid_y = int(round(gy))
                                 if test_reach_occupancygrid[grid_y, grid_x] != 2:  # Avoid overwriting car box
                                     test_reach_occupancygrid[grid_y, grid_x] = -2
+                                    decision_occupancygrid[grid_y, grid_x] = -2
                     except Exception as e:
                         print("Error marking path from car front to goal:", e)
                 occupationgrid_generation_end = time.time()
@@ -1158,7 +1170,7 @@ def game_loop(args):
 
 
                 solution_start = time.time()
-                sent = subscriber.send_conflict(test_reach_occupancygrid)
+                sent = subscriber.send_conflict([test_reach_occupancygrid, decision_occupancygrid])
                 if sent:
                     print("Conflict sent to subscriber")
                     final_occupancy_grid = subscriber.receive_solution()

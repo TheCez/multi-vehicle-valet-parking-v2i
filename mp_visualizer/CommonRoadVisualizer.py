@@ -14,7 +14,10 @@ import matplotlib.pyplot as plt
 from PyQt6.QtCore import QObject, pyqtSignal, QMutex, QMutexLocker
 from commonroad_reach.utility.coordinate_system import convert_to_cartesian_polygons
 import math
-
+import copy
+from commonroad.geometry.shape import Rectangle
+from commonroad.scenario.obstacle import DynamicObstacle, ObstacleType, StaticObstacle
+from commonroad.visualization.draw_params import DynamicObstacleParams
 
 class CommonRoadVisualizer(QMainWindow):
     """Class for visualizing CommonRoad scenarios with MPRenderer in a PyQt application."""
@@ -78,7 +81,7 @@ class CommonRoadVisualizer(QMainWindow):
         # Render the canvas
         #self.canvas.render()
 
-    def update_visualization(self):
+    def update_visualization(self, other_cars=None):
         """Update dynamic elements (ego vehicle and reachability analysis)"""
 
         if self.visualize:
@@ -116,28 +119,78 @@ class CommonRoadVisualizer(QMainWindow):
             self.planning_problem.initial_state = initial_state
             
             # Perform reachability analysis
-            current_step = self.base_config.planning.steps_computation
             self.reach_interface = real_time_reachability_analysis(
                 self.base_config, self.scenario, self.planning_problem
             )
 
-            # initial_state =InitialState(
-            #     position=position,
-            #     orientation=orientation,
-            #     #velocity=speed * 3.6,  # Convert m/s to km/h
-            #     velocity = 7,
-            #     time_step=0,
-            #     yaw_rate=angular_velocity.z,
-            #     slip_angle=slip_angle,
-            # )
-            # self.planning_problem.initial_state = initial_state
-            # control_decision = 
+            decision_initial_state =InitialState(
+                position=position,
+                orientation=orientation,
+                #velocity=speed * 3.6,  # Convert m/s to km/h
+                velocity = 7,
+                time_step=0,
+                yaw_rate=angular_velocity.z,
+                slip_angle=slip_angle,
+            )
+
+            # Draw reachable sets if available
+            if self.reach_interface:
+                try:
+                    polygons = self.draw_reachable_area(self.base_config.planning.steps_computation, self.reach_interface)
+                except Exception as e:
+                    print(f"Error in draw_reachable_area: {e}")
+                    polygons = []
+
+            decision_scenario = copy.deepcopy(self.scenario)
+            if other_cars is not None:
+                # Create a list to hold obstacles for other vehicles
+                obstacles_to_add = []
+                for car in other_cars:
+                    position, orientation = carla_to_commonroad_transform_actor(car)
+                    velocity = car.get_velocity()
+                    speed = (velocity.x**2 + velocity.y**2 + velocity.z**2)**0.5
+                    angular_velocity = car.get_angular_velocity()
+                    slip_angle = math.atan2(velocity.y, velocity.x)
+                    slip_angle = np.degrees(slip_angle)  # Convert to degrees
+
+                    car_rect = Rectangle(length=4.3, width=1.8, center=np.zeros(2))
+                    car_initial_state = InitialState(
+                        position=position,
+                        orientation=orientation,
+                        velocity=speed * 3.6,  # Convert m/s to km/h
+                        #velocity=20,
+                        time_step=0,
+                        yaw_rate=angular_velocity.z,
+                        slip_angle=slip_angle,
+                    )
+                    
+                    # Add as static obstacle instead of dynamic
+                    car_static_obstacle = StaticObstacle(
+                        obstacle_id=decision_scenario.generate_object_id(),
+                        obstacle_type=ObstacleType.CAR,
+                        obstacle_shape=car_rect,
+                        initial_state=car_initial_state
+                    )
+                    obstacles_to_add.append(car_static_obstacle)
+                    if self.visualize:
+                        car_draw_params = DynamicObstacleParams()
+                        car_draw_params.facecolor = 'blue'
+                        car_static_obstacle.draw(self.canvas.mp_renderer, draw_params=car_draw_params)
+                # Add all obstacles at once
+                decision_scenario.add_objects(obstacles_to_add)
+
+            decision_planning_problem = copy.deepcopy(self.planning_problem)
+            decision_planning_problem.initial_state = decision_initial_state
+            decision_base_config = copy.deepcopy(self.base_config)
+            decision_base_config.planning.steps_computation = 12
+            decision_interface = real_time_reachability_analysis(
+                decision_base_config, decision_scenario, decision_planning_problem
+            )
 
             if self.visualize:
             
                 # Draw ego vehicle
-                from commonroad.geometry.shape import Rectangle
-                from commonroad.scenario.obstacle import DynamicObstacle, ObstacleType
+
                 
                 ego_rect = Rectangle(length=4.3, width=1.8, center=np.zeros(2))
                 ego_obstacle = DynamicObstacle(
@@ -148,21 +201,28 @@ class CommonRoadVisualizer(QMainWindow):
                 )
 
                 # Create a proper DrawParams object for dynamic obstacles
-                from commonroad.visualization.draw_params import DynamicObstacleParams
+
                 draw_params = DynamicObstacleParams()
                 draw_params.facecolor = 'red'  # Set the color property
                 
                 # Draw the ego vehicle with custom styling
                 ego_obstacle.draw(self.canvas.mp_renderer, draw_params=draw_params)
             
-            # Draw reachable sets if available
-            if self.reach_interface:
+            # # Draw reachable sets if available
+            # if self.reach_interface:
+            #     try:
+            #         polygons = self.draw_reachable_area(self.base_config.planning.steps_computation, self.reach_interface)
+            #     except Exception as e:
+            #         print(f"Error in draw_reachable_area: {e}")
+            #         polygons = []
+
+            if decision_interface:
                 try:
-                    polygons = self.draw_reachable_area(current_step)
+                    decision_polygons = self.draw_reachable_area(decision_base_config.planning.steps_computation, decision_interface)
                 except Exception as e:
                     print(f"Error in draw_reachable_area: {e}")
-                    polygons = []
-        
+                    decision_polygons = []
+
         except Exception as e:
             print(f"Error in update_visualization: {e}")
         
@@ -170,65 +230,28 @@ class CommonRoadVisualizer(QMainWindow):
             # Render the updated visualization
             self.canvas.render()
         # Return polygons for further processing if needed
-        return polygons
+        return polygons, decision_polygons
 
-    def draw_reachable_area(self, current_step):
+    def draw_reachable_area(self, current_step, reach_interface=None):
         """Draw the reachable area for the current time step"""
         if self.visualize:
             # generate default drawing parameters
-            config = self.reach_interface.config
+            config = reach_interface.config
             draw_params = generate_default_drawing_parameters(config)
             palette = sns.color_palette("GnBu_d", 3)
             edge_color = (palette[0][0] * 0.75, palette[0][1] * 0.75, palette[0][2] * 0.75)
             draw_params.shape.facecolor = palette[0]
             draw_params.shape.edgecolor = edge_color
         # Get reachable set nodes
-        list_nodes = self.reach_interface.reachable_set_at_step(current_step)
+        list_nodes = reach_interface.reachable_set_at_step(current_step)
         if self.visualize:
             draw_reachable_sets(list_nodes, config, self.canvas.mp_renderer, draw_params)
         # Convert reachable set rectangles to polygons and return them
 
-        clcs = self.reach_interface.config.planning.CLCS
+        clcs = reach_interface.config.planning.CLCS
         polygons = []
         for node in list_nodes:
             vertices = node.position_rectangle.vertices
             polygons.append(vertices)
         print(f"Number of polygons in reachable set: {len(polygons)}")
         return polygons
-        #     for poly in cartesian_polygons:
-        #         coords = poly.vertices
-        #         polygons.append(coords)
-        # print(f"Number of polygons in reachable set: {len(polygons)}")
-        # return polygons
-        #list_nodes = self.reach_interface.drivable_area_at_step(current_step)
-        #draw_drivable_area(list_nodes, config, self.canvas.mp_renderer, draw_params)
-        #self.canvas.mp_renderer.ax.autoscale(enable=True)
-        #plot_limits = compute_plot_limits_from_reachable_sets(self.reach_interface)
-        #self.canvas.mp_renderer.plot_limits = plot_limits
-
-
-        # plt.rc("axes", axisbelow=True)
-        # ax = plt.gca()
-        # ax.set_aspect("equal")
-        # #ax.set_title(f"$t = {time_step / 10.0:.1f}$ [s]", fontsize=28)
-        # ax.set_xlabel(f"$s$ [m]", fontsize=28)
-        # ax.set_ylabel("$d$ [m]", fontsize=28)
-        # plt.margins(0, 0)
-
-        # # Get coordinate system from reach interface
-        # clcs = self.reach_interface.config.planning.CLCS
-        
-        # # Import utility function to convert to cartesian coordinates
-        # from commonroad_reach.utility.coordinate_system import convert_to_cartesian_polygons
-        
-        # # Draw each rectangle in the drivable area
-        # for rectangle_cvln in drivable_area:
-        #     # Convert to cartesian polygons
-        #     cartesian_polygons = convert_to_cartesian_polygons(
-        #         rectangle_cvln, clcs, split_wrt_angle=False
-        #     )
-            
-        #     # Draw each polygon with custom styling
-        #     for poly in cartesian_polygons:
-        #         poly.draw(self.canvas.mp_renderer, 
-        #                 draw_params={'facecolor': 'blue', 'opacity': 0.5})

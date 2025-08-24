@@ -190,8 +190,8 @@ class World(object):
             spawn_points = self.map.get_spawn_points()
             spawn_point = random.choice(spawn_points) if spawn_points else carla.Transform()
             spawn_point = spawn_points[5]
-            custom_location = carla.Location(x=24.5, y=30, z=0.5)
-            custom_rotation = carla.Rotation(pitch=0, yaw=90, roll=0)
+            custom_location = carla.Location(x=26, y=70, z=0.5)
+            custom_rotation = carla.Rotation(pitch=0, yaw=270, roll=0)
             spawn_point = carla.Transform(custom_location, custom_rotation)
             self.player = self.world.try_spawn_actor(blueprint, spawn_point)
             self.modify_vehicle_physics(self.player)
@@ -898,9 +898,6 @@ def stitch_paths(path, updated_path, conflict_area_bounds, padding):
 
     return new_path
 
-# def mark_parking_lines_on_grid(grid, scenario):
-
-
 
 # ==============================================================================
 # -- Game Loop ---------------------------------------------------------
@@ -972,7 +969,7 @@ def game_loop(args):
         spawn_points = world.map.get_spawn_points()
         # destination = random.choice(spawn_points).location
         destination = spawn_points[10].location
-        destination = carla.Location(x=24.5, y=70, z=0)
+        destination = carla.Location(x=26, y=30, z=0)
         # agent.set_destination(destination)
         # clock = pygame.time.Clock()
 
@@ -1013,9 +1010,6 @@ def game_loop(args):
             window.show()
             # Force initial GUI update
         QApplication.processEvents()
-
-        scenario = test.scenario
-
 
         # Initialize path follower
         path_follower = follow_path_with_pid(world.player, path, speed=6)
@@ -1092,16 +1086,11 @@ def game_loop(args):
                 #test.window.update_visualization()
                         # Update visualization
                 reachability_calculation_start = time.time()
-                # Get all car objects except the ego vehicle
-                all_vehicles = world.world.get_actors().filter('vehicle.*')
-                other_cars = [v for v in all_vehicles if v.id != world.player.id]
-                polygons,  decision_polygons = window.update_visualization(other_cars=other_cars)
+                polygons = window.update_visualization()
                 reachability_calculation_end = time.time()
                 occupationgrid_generation_start = time.time()
                 reach_occupancygrid, car_box_index = occupationgrid.generate_occupation_grid(world.player, polygons)
-
-                decision_occupancygrid, _ = occupationgrid.generate_occupation_grid(world.player, decision_polygons)
-                decision_occupancygrid = decision_occupancygrid.copy().astype(np.int8)
+                
                 test_reach_occupancygrid = reach_occupancygrid.copy().astype(np.int8)
                 # Mark the path in the occupancy grid as -2
                 path_copy = copy.deepcopy(path)
@@ -1126,7 +1115,6 @@ def game_loop(args):
                                 grid_y = int(round(gy))
                                 if test_reach_occupancygrid[grid_y, grid_x] != 2:  # Avoid overwriting car box
                                     test_reach_occupancygrid[grid_y, grid_x] = -2
-                                    decision_occupancygrid[grid_y, grid_x] = -2
                     except Exception as e:
                         print("Error marking path from car front to goal:", e)
                 occupationgrid_generation_end = time.time()
@@ -1170,7 +1158,7 @@ def game_loop(args):
 
 
                 solution_start = time.time()
-                sent = subscriber.send_conflict([test_reach_occupancygrid, decision_occupancygrid])
+                sent = subscriber.send_conflict(test_reach_occupancygrid)
                 if sent:
                     print("Conflict sent to subscriber")
                     final_occupancy_grid = subscriber.receive_solution()
