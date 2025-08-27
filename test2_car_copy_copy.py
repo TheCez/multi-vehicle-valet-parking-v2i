@@ -190,8 +190,8 @@ class World(object):
             spawn_points = self.map.get_spawn_points()
             spawn_point = random.choice(spawn_points) if spawn_points else carla.Transform()
             spawn_point = spawn_points[5]
-            custom_location = carla.Location(x=24.5, y=30, z=0.5)
-            custom_rotation = carla.Rotation(pitch=0, yaw=90, roll=0)
+            custom_location = carla.Location(x=26, y=70, z=0.5)
+            custom_rotation = carla.Rotation(pitch=0, yaw=270, roll=0)
             spawn_point = carla.Transform(custom_location, custom_rotation)
             self.player = self.world.try_spawn_actor(blueprint, spawn_point)
             self.modify_vehicle_physics(self.player)
@@ -929,7 +929,7 @@ def game_loop(args):
         client = carla.Client(args.host, args.port)
         client.set_timeout(60.0)
 
-        traffic_manager = client.get_trafficmanager()
+        #traffic_manager = client.get_trafficmanager()
         sim_world = client.get_world()
 
         occupationgrid = OccupationGrid(sim_world, cell_size=0.5)
@@ -943,11 +943,13 @@ def game_loop(args):
             settings.fixed_delta_seconds = 0.05
             sim_world.apply_settings(settings)
 
-            traffic_manager.set_synchronous_mode(True)
+            #traffic_manager.set_synchronous_mode(True)
 
-        display = pygame.display.set_mode(
-            (args.width, args.height),
-            pygame.HWSURFACE | pygame.DOUBLEBUF)
+        if args.visualize:
+
+            display = pygame.display.set_mode(
+                (args.width, args.height),
+                pygame.HWSURFACE | pygame.DOUBLEBUF)
 
         hud = HUD(args.width, args.height)
         world = World(client.get_world(), hud, args)
@@ -969,7 +971,7 @@ def game_loop(args):
         spawn_points = world.map.get_spawn_points()
         # destination = random.choice(spawn_points).location
         destination = spawn_points[10].location
-        destination = carla.Location(x=24.5, y=70, z=0)
+        destination = carla.Location(x=26, y=30, z=0)
         # agent.set_destination(destination)
         # clock = pygame.time.Clock()
 
@@ -1003,9 +1005,10 @@ def game_loop(args):
         # Initialize Qt in the main thread
         app = QApplication([])
         test = CommonRoadSceneGenerator(world.player)
-        window = CommonRoadVisualizer(test.base_config, test.scenario, test.planning_problem, test.world, world.player)
-        window.setGeometry(100, 100, 800, 600)
-        window.show()
+        window = CommonRoadVisualizer(test.base_config, test.scenario, test.planning_problem, test.world, world.player, visualize=args.visualize)
+        if args.visualize:
+            window.setGeometry(100, 100, 800, 600)
+            window.show()
             # Force initial GUI update
         QApplication.processEvents()
 
@@ -1041,10 +1044,11 @@ def game_loop(args):
                 if controller.parse_events():
                     return
                 
-
+                
                 world.tick(clock)
-                world.render(display)
-                pygame.display.flip()
+                if args.visualize:
+                    world.render(display)
+                    pygame.display.flip()
 
                 # if agent.done():
                 #     if args.loop:

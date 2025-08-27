@@ -18,8 +18,9 @@ class Master:
     no_of_subscribers = 0
     pending_disconnects = 0
 
-    def __init__(self, pub_port=5555, sync_port=5556, hb_port=5557, visualize=False):
+    def __init__(self, pub_port=5555, sync_port=5556, hb_port=5557, visualize=False, collect_data=False):
         self.visualize = visualize
+        self.collect_data = collect_data
         client = carla.Client('localhost', 2000)
         client.set_timeout(5.0)
         world = client.get_world()
@@ -76,6 +77,7 @@ class Master:
         self.active_subscribers = {}
         self.conflict_solved = None
         self.subscribers_data = {}
+        self.overlap_obs = None
         
 
         if self.visualize:
@@ -116,6 +118,15 @@ class Master:
         if Master.no_of_subscribers > 0:
             self.verify_acknowledgment()
         return True
+    
+    def _priority_update(self, vis, new, diff_mask):
+        # Define priority mapping
+        pm = {-2: 8, 6: 7, -4: 6, 4: 5, 2: 4, 5: 3, 3: 2, 1: 1, 0: 0}
+        vec = np.vectorize(pm.get)
+        vp = vec(vis)
+        np_ = vec(new)
+        mask = diff_mask & (np_ > vp)
+        return mask, new[mask]
 
     def verify_acknowledgment(self):
         self.waiting_for_ack = Master.no_of_subscribers
@@ -149,7 +160,8 @@ class Master:
                             continue
 
                         if self.conflict_counter == 0:
-                            solver_time_start = time.time()
+                            if self.collect_data:
+                                solver_time_start = time.time()
                             # # Remove subscriber_data entries whose keys are not in occupancy_grids
                             # for key in list(self.subscribers_data.keys()):
                             #     if key not in occupancy_grids:
@@ -158,217 +170,152 @@ class Master:
                             #             sub_data['car_value'] -= 2
                             #             sub_data['car_reach_value'] -= 2
                             #             sub_data['path_value'] += 2
-                            
-                            # Assign unique values for each grid
-                            for idx, (subscriber_id, grid) in enumerate(occupancy_grids.items()):
+
+                            # Assign unique values vectorized
+                            for subscriber_id, grid in occupancy_grids.items():
                                 if subscriber_id not in self.subscribers_data:
-                                    new_car_value = ((Master.no_of_subscribers-1) * 2) + 2
-                                    new_car_reach_value = new_car_value + 1
-                                    new_path_value = -new_car_value
-                                    grid[grid == 2] = new_car_value
-                                    grid[grid == 3] = new_car_reach_value
-                                    grid[grid == -2] = new_path_value
+                                    new_car = ((Master.no_of_subscribers - 1) * 2) + 2
+                                    new_reach = new_car + 1
+                                    new_path = -new_car
+                                    grid[grid == 2] = new_car
+                                    grid[grid == 3] = new_reach
+                                    grid[grid == -2] = new_path
                                     self.subscribers_data[subscriber_id] = {
-                                        'car_value': new_car_value, 
-                                        'car_reach_value': new_car_reach_value, 
-                                        'path_value': new_path_value
+                                        'car_value': new_car,
+                                        'car_reach_value': new_reach,
+                                        'path_value': new_path
                                     }
                                 else:
-                                    car_value = self.subscribers_data[subscriber_id]['car_value']
-                                    car_reach_value = self.subscribers_data[subscriber_id]['car_reach_value']
-                                    path_value = self.subscribers_data[subscriber_id]['path_value']
-                                    grid[grid == 2] = car_value
-                                    grid[grid == 3] = car_reach_value
-                                    grid[grid == -2] = path_value
-                    
-                            # Merge all received occupancy grids with conflict handling
-                            first_grid = next(iter(occupancy_grids.values()))
-                            grid_shape = first_grid.shape
-                            merged_grid = np.empty(grid_shape, dtype=object)
-                            visualization_grid = np.empty(grid_shape, dtype=first_grid.dtype)
-                            temp_grid = np.empty(grid_shape, dtype=object)
-                            temp_grid_visualization = np.empty(grid_shape, dtype=first_grid.dtype)
-                            visualization_grid_view = np.empty(grid_shape, dtype=first_grid.dtype)
-                            top_left = None
-                            top_right = None
-                            bottom_left = None
-                            bottom_right = None
+                                    sd = self.subscribers_data[subscriber_id]
+                                    grid[grid == 2] = sd['car_value']
+                                    grid[grid == 3] = sd['car_reach_value']
+                                    grid[grid == -2] = sd['path_value']
 
-                            # Copy the first grid as the base
-                            merged_grid[:] = first_grid
-                            visualization_grid[:] = first_grid
-                            visualization_grid_view[:] = first_grid
-                            temp_grid.fill(0)
-                            temp_grid_visualization.fill(0)
-                            conflict = False
 
-                            # Merge the rest of the grids
-                            for _, grid in list(occupancy_grids.items())[1:]:
-                                for idx, value in np.ndenumerate(grid):
-                                    if abs(merged_grid[idx]) >= 2 or abs(value) >= 2:
-                                        row, col = idx
-                                        if top_left is None:
-                                            top_left = (row, col)
-                                            bottom_right = (row, col)
-                                            top_right = (row, col)
-                                            bottom_left = (row, col)
-                                        else:
-                                            if row < top_left[0] or col < top_left[1]:
-                                                top_left = (min(row, top_left[0]), min(col, top_left[1]))
-                                            if row < bottom_left[0] or col > bottom_left[1]:
-                                                bottom_left = (min(row, bottom_left[0]), max(col, bottom_left[1]))
-                                            if row > top_right[0] or col < top_right[1]:
-                                                top_right = (max(row, top_right[0]), min(col, top_right[1]))
-                                            if row > bottom_right[0] or col > bottom_right[1]:
-                                                bottom_right = (max(row, bottom_right[0]), max(col, bottom_right[1]))
-                                        #################################################################################################################
-                                        if merged_grid[idx] == 3 or merged_grid[idx] == 5:
-                                            if not isinstance(temp_grid[idx], list) or len(temp_grid[idx]) == 0:
-                                                temp_grid[idx] = [merged_grid[idx]]
-                                            elif merged_grid[idx] not in temp_grid[idx]:
-                                                temp_grid[idx].append(merged_grid[idx])
-                                        if value == 3 or value == 5:
-                                            if not isinstance(temp_grid[idx], list) or len(temp_grid[idx]) == 0:
-                                                temp_grid[idx] = [value]
-                                            elif value not in temp_grid[idx]:
-                                                temp_grid[idx].append(value)
-                                        #print(f"temp_grid[{idx}] after appending: {temp_grid[idx]}")
-                                        if isinstance(temp_grid[idx], list) and 3 in temp_grid[idx] and 5 in temp_grid[idx]:
-                                            conflict = True
-                                        # if merged_grid[idx] >= 3 and value >= 5:
-                                        #     temp_grid[idx] = [merged_grid[idx], value]
-                                        #     conflict = True
-                                        # if merged_grid[idx] >= 5 and value >= 3:
-                                        #     temp_grid[idx] = [merged_grid[idx], value]
-                                        #     conflict = True
-                                        # elif merged_grid[idx] >= 3:
-                                        #     temp_grid[idx] = [merged_grid[idx]]
-                                        # elif value >= 5:
-                                        #     temp_grid[idx] = [value]
-                                        
-                                        #####################################################################################################################
-                                        
-                                        if abs(visualization_grid[idx]) >= abs(value):
-                                            temp_grid_visualization[idx] = visualization_grid[idx]
-                                        else:
-                                            temp_grid_visualization[idx] = value
-                                        
-                                        if visualization_grid[idx] in (2, 4):
-                                            temp_grid_visualization[idx] = visualization_grid[idx]
-                                        if value in (2, 4):
-                                            temp_grid_visualization[idx] = value
-                                            
-                                    if merged_grid[idx] != value:
-                                        merged_grid[idx] = [merged_grid[idx], value]
-                                        visualization_grid[idx] = max(visualization_grid[idx], value)
-                                        
-                                        if visualization_grid_view[idx] == -2 or value == -2:
-                                            visualization_grid_view[idx] = -2
-                                        elif visualization_grid_view[idx] == 6 or value == 6:
-                                            visualization_grid_view[idx] = 6
-                                        elif visualization_grid_view[idx] == -4 or value == -4:
-                                            visualization_grid_view[idx] = -4
-                                        elif visualization_grid_view[idx] == 4 or value == 4:
-                                            visualization_grid_view[idx] = 4
-                                        elif visualization_grid_view[idx] == 2 or value == 2:
-                                            visualization_grid_view[idx] = 2
-                                        elif visualization_grid_view[idx] == 5 or value == 5:
-                                            visualization_grid_view[idx] = 5
 
-                                        elif visualization_grid_view[idx] == 3 or value == 3:
-                                            visualization_grid_view[idx] = 3
-                                        
-                                        elif visualization_grid_view[idx] == 1 or value == 1:
-                                            visualization_grid_view[idx] = 1
+                            # np.save("fast_grid/grid.npy", grid)
+                            grids = list(occupancy_grids.values())
+                            shape = grids[0].shape
+
+                            merged = grids[0].copy()
+                            vis_grid = grids[0].copy()
+                            conflict_mask = np.zeros(shape, dtype=bool)
+
+
+                            significant_mask = np.zeros(shape, dtype=bool)
+                            for grid in grids[1:]:
+                                # Update merged + detect conflict
+                                reach3 = (merged == 3) | (merged == 5)
+                                reach5 = (grid == 3) | (grid == 5)
+                                conflict_mask |= reach3 & reach5
+                                significant_mask |= (np.abs(merged) >= 2) | (np.abs(grid) >= 2)
+                                # Update merged where different
+                                diff = merged != grid
+                                merged[diff] = grid[diff]
+
+                                # Visualization: pick max abs value
+                                higher = np.abs(grid) > np.abs(vis_grid)
+                                vis_grid[higher] = grid[higher]
+
+                                # Prioritize car markers (2,4)
+                                car_spots = np.isin(grid, [2, 4])
+                                vis_grid[car_spots] = grid[car_spots]
+
+                                # Then apply full priority map
+                                pmask, pvals = self._priority_update(vis_grid, grid, diff)
+                                vis_grid[pmask] = pvals
+
+                            # np.save("fast_grid/vis_grid.npy", vis_grid)
                             
                             # Process conflicts
-                            if conflict:
-                                if not hasattr(self, 'overlap_obs'):
-                                    self.overlap_obs = []
-                                    if len(self.overlap_obs) == 0: 
-                                        for idx, cell in np.ndenumerate(temp_grid):
-                                            if isinstance(cell, list) and 3 in cell and 5 in cell:
-                                                temp_grid_visualization[idx] = 1
-                                                self.overlap_obs.append(idx)
-                                else:
-                                    for idx in self.overlap_obs:
-                                        temp_grid_visualization[idx] = 1
-                            
+                            if conflict_mask.any():
+                                #print("Conflicts detected, solving...")
+                                
+                                if self.overlap_obs is None:
+                                    self.overlap_obs = conflict_mask
+                                    # coords = np.where(conflict_mask)
+                                    # self.overlap_obs = list(zip(coords[0], coords[1]))
+
+                                vis_grid[self.overlap_obs] = 1  # mark conflicts               
                                 
                                             
-                                if None not in (top_left, top_right, bottom_left, bottom_right):
-                                    min_row = min(top_left[0], bottom_left[0])
-                                    max_row = max(top_right[0], bottom_right[0])
-                                    min_col = min(top_left[1], top_right[1])-5
-                                    max_col = max(bottom_left[1], bottom_right[1])+5
+                                rows, cols = np.where(significant_mask)
+                                min_r, max_r = rows.min(), rows.max()
+                                min_c = max(cols.min() , 0)-5
+                                max_c = min(cols.max() , vis_grid.shape[1] - 1) + 5
 
-                                    conflict_area = temp_grid_visualization[min_row:max_row+1, min_col:max_col+1]
-                                    #overlapping_area = temp_grid[min_row:max_row+1, min_col:max_col+1]
+                                conflict_area = vis_grid[min_r:max_r+1, min_c:max_c+1]
+
+                                # self.oc.update_visualization2(current_grid=conflict_area)
+                                # self.conflict_solved = {subscriber_id: 'No Conflict' for subscriber_id in occupancy_grids.keys()}
                                 
                                 conflict_area, new_path_point = solve_conflict(conflict_area)
-                                self.conflict_solved = {}
-                                sub_id = None
+                                # self.conflict_solved = {}
+                                # sub_id = None
+                                # print('New path point:', new_path_point)
                                 
-                                if new_path_point is not None:
-                                    if np.any((conflict_area == 4)):
-                                        for sub_id, sub_data in self.subscribers_data.items():
-                                            if sub_data['car_value'] == 4:
-                                                break
+                                # Identify subscriber whose car_value == 4 (if any)
+                                sub_with_4 = next(
+                                    (sid for sid, sd in self.subscribers_data.items()
+                                    if sd['car_value'] == 4),
+                                    None
+                                )
+                                # if new_path_point is not None:
+                                #     if np.any((conflict_area == 4)):
+                                #         for sub_id, sub_data in self.subscribers_data.items():
+                                #             if sub_data['car_value'] == 4:
+                                #                 break
+                                # print('sub_with_4:', sub_id)
                                 
-                                for subscriber_id in occupancy_grids.keys():
-                                    if subscriber_id == sub_id:
-                                        conflict_area[(conflict_area == 4)] = 0
-                                        self.conflict_solved[subscriber_id] = {
+                                for sid in occupancy_grids:
+                                    if sid == sub_with_4:
+                                        conflict_area[conflict_area == 4] = 0
+                                        self.conflict_solved[sid] = {
                                             'conflict_area': conflict_area,
                                             'new_path_point': new_path_point,
                                             'conflict_area_bounds': {
-                                                'min_row': min_row,
-                                                'max_row': max_row,
-                                                'min_col': min_col,
-                                                'max_col': max_col
+                                                'min_row': min_r, 'max_row': max_r,
+                                                'min_col': min_c, 'max_col': max_c
                                             }
                                         }
-                                        # output_dir = "output_occupancy_grids"
-                                        # os.makedirs(output_dir, exist_ok=True)
-                                        # filename = f"conflict_area_{subscriber_id}.npy"
-                                        # filepath = os.path.join(output_dir, filename)
-                                        # np.save(filepath, conflict_area)
                                     else:
-                                        self.conflict_solved[subscriber_id] = 'No Conflict'
+                                        self.conflict_solved[sid] = 'No Conflict'
+
                             else:
                                 self.conflict_solved = {subscriber_id: 'No Conflict' for subscriber_id in occupancy_grids.keys()}
+        
+                            if self.collect_data:
+                                solver_time_end = time.time()
 
-                            solver_time_end = time.time()
-
-                            if solver_time_start is not None and solver_time_end is not None:
-                                csv_path = "csv_time_data/conflict/solver.csv"
-                                solver_time = solver_time_end - solver_time_start
-                                with open(csv_path, "a", newline="") as csvfile:
-                                    writer = csv.writer(csvfile)
-                                    writer.writerow([solver_time_start, solver_time_end, solver_time])
-                                solver_time_start = None
-                                solver_time_end = None
+                                if solver_time_start is not None and solver_time_end is not None:
+                                    csv_path = "csv_time_data/conflict/solver.csv"
+                                    solver_time = solver_time_end - solver_time_start
+                                    with open(csv_path, "a", newline="") as csvfile:
+                                        writer = csv.writer(csvfile)
+                                        writer.writerow([solver_time_start, solver_time_end, solver_time])
+                                    solver_time_start = None
+                                    solver_time_end = None
 
                             
                                 
-                            #self.oc.update_visualization2(current_grid=visualization_grid_view)
-                            if self.visualize:
+                            #self.oc.update_visualization2(current_grid=vis_grid)
+                            # if self.visualize:
 
-                                if len(occupancy_grids) == 1:
-                                    #print("Only one occupancy grid received, no conflicts to resolve.")
-                                    self.oc.update_visualization2(current_grid=visualization_grid_view)
-                                else:
-                                    #self.oc.update_visualization2(current_grid=visualization_grid_view)
-                                    #self.oc.update_visualization2(current_grid=temp_grid_visualization)
+                            #     if len(occupancy_grids) == 1:
+                            #         #print("Only one occupancy grid received, no conflicts to resolve.")
+                            #         self.oc.update_visualization2(current_grid=visualization_grid_view)
+                            #     else:
+                            #         #self.oc.update_visualization2(current_grid=visualization_grid_view)
+                            #         #self.oc.update_visualization2(current_grid=temp_grid_visualization)
 
-                                    # Add a black line (value 1) between the grids
-                                    separator = np.ones((visualization_grid_view.shape[0], 2), dtype=visualization_grid_view.dtype)
-                                    # Concatenate visualization_grid_view, separator, and temp_grid_visualization horizontally
-                                    combined_grid = np.concatenate(
-                                        (visualization_grid_view, separator, temp_grid_visualization), axis=1
-                                    )
-                                    # Visualize the combined grid
-                                    self.oc.update_visualization2(current_grid=combined_grid, zoom=False)
+                            #         # Add a black line (value 1) between the grids
+                            #         separator = np.ones((visualization_grid_view.shape[0], 2), dtype=visualization_grid_view.dtype)
+                            #         # Concatenate visualization_grid_view, separator, and temp_grid_visualization horizontally
+                            #         combined_grid = np.concatenate(
+                            #             (visualization_grid_view, separator, temp_grid_visualization), axis=1
+                            #         )
+                            #         # Visualize the combined grid
+                            #         self.oc.update_visualization2(current_grid=combined_grid, zoom=False)
 
                     
                     elif msg_type == b"SEND_SOLUTION":
@@ -553,8 +500,9 @@ class Subscriber:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--visualize', action='store_true', help='Enable visualization')
+    parser.add_argument('--collect_data', action='store_true', help='Enable data collection')
     args = parser.parse_args()
-    master = Master(visualize=args.visualize)
+    master = Master(visualize=args.visualize, collect_data=args.collect_data)
 
     client = carla.Client('localhost', 2000)
     client.set_timeout(5.0)  # Reduced timeout

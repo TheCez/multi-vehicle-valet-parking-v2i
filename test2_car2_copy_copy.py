@@ -909,8 +909,6 @@ def game_loop(args):
     Main loop of the simulation. It handles updating all the HUD information,
     ticking the agent and, if needed, the world.
     """
-
-
     # app = QApplication([])
     # # Force initial GUI update
     # QApplication.processEvents()
@@ -929,11 +927,12 @@ def game_loop(args):
         client = carla.Client(args.host, args.port)
         client.set_timeout(60.0)
 
-        traffic_manager = client.get_trafficmanager()
+        #traffic_manager = client.get_trafficmanager()
         sim_world = client.get_world()
 
         occupationgrid = OccupationGrid(sim_world, cell_size=0.5)
         grid_map = occupationgrid.grid
+        np.save("parking_lines/grid_map.npy", grid_map)
 
         #occupationgrid.start_visualization()
 
@@ -943,11 +942,12 @@ def game_loop(args):
             settings.fixed_delta_seconds = 0.05
             sim_world.apply_settings(settings)
 
-            traffic_manager.set_synchronous_mode(True)
-
-        display = pygame.display.set_mode(
-            (args.width, args.height),
-            pygame.HWSURFACE | pygame.DOUBLEBUF)
+            #traffic_manager.set_synchronous_mode(True)
+        
+        if args.visualize:
+            display = pygame.display.set_mode(
+                (args.width, args.height),
+                pygame.HWSURFACE | pygame.DOUBLEBUF)
 
         hud = HUD(args.width, args.height)
         world = World(client.get_world(), hud, args)
@@ -1003,9 +1003,10 @@ def game_loop(args):
         # Initialize Qt in the main thread
         app = QApplication([])
         test = CommonRoadSceneGenerator(world.player)
-        window = CommonRoadVisualizer(test.base_config, test.scenario, test.planning_problem, test.world, world.player)
-        window.setGeometry(100, 100, 800, 600)
-        window.show()
+        window = CommonRoadVisualizer(test.base_config, test.scenario, test.planning_problem, test.world, world.player, visualize=args.visualize)
+        if args.visualize:
+            window.setGeometry(100, 100, 800, 600)
+            window.show()
             # Force initial GUI update
         QApplication.processEvents()
 
@@ -1028,7 +1029,25 @@ def game_loop(args):
         # )
         # vis_thread.start()
         # subscriber = Subscriber()
+        start_time = time.time()
+
+
+
         while True:
+            start_loop_time = None
+            end_loop_time = None
+            reachability_calculation_start = None
+            reachability_calculation_end = None
+            occupationgrid_generation_start = None
+            occupationgrid_generation_end = None
+            hybrid_astar_start = None
+            hybrid_astar_end = None
+            update_path_start = None
+            update_path_end = None
+            solution_start = None
+            solution_end = None
+
+            start_loop_time = time.time()
             if subscriber.receive_messages():
 
                 # Process Qt events in each iteration
@@ -1043,8 +1062,9 @@ def game_loop(args):
                 
 
                 world.tick(clock)
-                world.render(display)
-                pygame.display.flip()
+                if args.visualize:
+                    world.render(display)
+                    pygame.display.flip()
 
                 # if agent.done():
                 #     if args.loop:
@@ -1064,9 +1084,12 @@ def game_loop(args):
                     break
                 #test.window.update_visualization()
                         # Update visualization
+                reachability_calculation_start = time.time()
                 polygons = window.update_visualization()
-
+                reachability_calculation_end = time.time()
+                occupationgrid_generation_start = time.time()
                 reach_occupancygrid, car_box_index = occupationgrid.generate_occupation_grid(world.player, polygons)
+                
                 test_reach_occupancygrid = reach_occupancygrid.copy().astype(np.int8)
                 # Mark the path in the occupancy grid as -2
                 path_copy = copy.deepcopy(path)
@@ -1093,31 +1116,33 @@ def game_loop(args):
                                     test_reach_occupancygrid[grid_y, grid_x] = -2
                     except Exception as e:
                         print("Error marking path from car front to goal:", e)
-                if new_path is not None:
-                    path_copy = copy.deepcopy(new_path)
-                    if car_box_index is not None and len(path_copy.x) > 0:
-                        try:
-                            # Find the front-most point of the car (in the direction of the path)
-                            path_head = np.array([path_copy.x[0], path_copy.y[0]])
-                            car_box_array = np.array(car_box_index)
-                            # Find which car box point is furthest along the direction to the path head
-                            dists_to_path_head = np.linalg.norm(car_box_array - path_head, axis=1)
-                            front_idx = int(np.argmin(dists_to_path_head))
-                            car_gx, car_gy = car_box_index[front_idx]
+                occupationgrid_generation_end = time.time()
+                if args.visualize:
+                    if new_path is not None:
+                        path_copy = copy.deepcopy(new_path)
+                        if car_box_index is not None and len(path_copy.x) > 0:
+                            try:
+                                # Find the front-most point of the car (in the direction of the path)
+                                path_head = np.array([path_copy.x[0], path_copy.y[0]])
+                                car_box_array = np.array(car_box_index)
+                                # Find which car box point is furthest along the direction to the path head
+                                dists_to_path_head = np.linalg.norm(car_box_array - path_head, axis=1)
+                                front_idx = int(np.argmin(dists_to_path_head))
+                                car_gx, car_gy = car_box_index[front_idx]
 
-                            # Find the closest path point to the front of the car
-                            dists = [(gx - car_gx) ** 2 + (gy - car_gy) ** 2 for gx, gy in zip(path_copy.x, path_copy.y)]
-                            start_idx = int(np.argmin(dists))
+                                # Find the closest path point to the front of the car
+                                dists = [(gx - car_gx) ** 2 + (gy - car_gy) ** 2 for gx, gy in zip(path_copy.x, path_copy.y)]
+                                start_idx = int(np.argmin(dists))
 
-                            # Mark the path from the front of the car to the goal
-                            for gx, gy in zip(path_copy.x[start_idx:], path_copy.y[start_idx:]):
-                                if 0 <= gx < reach_occupancygrid.shape[0] and 0 <= gy < reach_occupancygrid.shape[1]:
-                                    grid_x = int(round(gx))
-                                    grid_y = int(round(gy))
-                                    if test_reach_occupancygrid[grid_y, grid_x] != 2 and test_reach_occupancygrid[grid_y, grid_x] != -2:  # Avoid overwriting car box
-                                        test_reach_occupancygrid[grid_y, grid_x] = 6
-                        except Exception as e:
-                            print("Error marking path from car front to goal:", e)
+                                # Mark the path from the front of the car to the goal
+                                for gx, gy in zip(path_copy.x[start_idx:], path_copy.y[start_idx:]):
+                                    if 0 <= gx < reach_occupancygrid.shape[0] and 0 <= gy < reach_occupancygrid.shape[1]:
+                                        grid_x = int(round(gx))
+                                        grid_y = int(round(gy))
+                                        if test_reach_occupancygrid[grid_y, grid_x] != 2 and test_reach_occupancygrid[grid_y, grid_x] != -2:  # Avoid overwriting car box
+                                            test_reach_occupancygrid[grid_y, grid_x] = 6
+                            except Exception as e:
+                                print("Error marking path from car front to goal:", e)
                 # # Get ego vehicle's world coordinates
                 # ego_location = world.player.get_location()
                 # ego_x = ego_location.x
@@ -1131,8 +1156,8 @@ def game_loop(args):
                 #     test_reach_occupancygrid[int(ego_gy), int(ego_gx)] = 3
 
 
+                solution_start = time.time()
                 sent = subscriber.send_conflict(test_reach_occupancygrid)
-
                 if sent:
                     print("Conflict sent to subscriber")
                     final_occupancy_grid = subscriber.receive_solution()
@@ -1183,6 +1208,9 @@ def game_loop(args):
                         destination_x = new_destination_point[0] - conflict_area_bounds['min_col']
                         new_destination_y = new_destination_point[1] - conflict_area_bounds['min_row']
 
+                        solution_end = time.time()
+                        
+                        hybrid_astar_start = time.time()
                         updated_path = hybrid_astar.short_path_finder(
                             player_x, player_y+2, destination_yaw,#player_yaw,
                             destination_x, new_destination_y, destination_yaw,
@@ -1190,7 +1218,7 @@ def game_loop(args):
                             padding['pad_x'], padding['pad_y']
                         )
 
-
+                        hybrid_astar_end = time.time()
                         #updated_path = hybrid_astar.short_path_finder(player_x, player_y, player_yaw, destination_x, destination_y+10, destination_yaw, small_grid, conflict_area_bounds['min_col'], conflict_area_bounds['min_row'], padding['pad_x'], padding['pad_y'])
 
                         print("Control side: conflict_area : ", conflict_area.shape)
@@ -1209,8 +1237,9 @@ def game_loop(args):
 
                         # Convert updated_path coordinates back to global grid coordinates
                         
-
+                        
                         if updated_path is not None:
+                            update_path_start = time.time()
                             new_path = stitch_paths(path, updated_path, conflict_area_bounds, padding)
 
                             #######################################################################################################################
@@ -1277,6 +1306,7 @@ def game_loop(args):
                             # print("Stitched path (x, y) combo:")
                             # for x, y in zip(path.x, path.y):
                             #     print(f"Stitched path: ({x}, {y})")
+                            update_path_end = time.time()
 
 
                         # if updated_path is not None and len(updated_path.x) > 0:
@@ -1300,8 +1330,10 @@ def game_loop(args):
 
                         # Update the visualization with the final occupancy grid
                         #print("control side: ", final_occupancy_grid.shape)
+                    
                     else:
                         print("Control side: No Conflict detected, proceeding with the path")
+                        solution_end = time.time()
                         if conflict:
                             player_transform = world.player.get_transform()
                             player_x = player_transform.location.x
@@ -1311,12 +1343,15 @@ def game_loop(args):
                             #destination_y = path.y[-1] - conflict_area_bounds['min_row']
                             #last_destination = (path.x[-1], path.y[-1])
                             # Send world.player coordinates and yaw to hybrid_astar
+                            hybrid_astar_start = time.time()
                             updated_path = hybrid_astar.short_path_finder(
                             player_x, player_y+2,destination_yaw,#player_yaw,
                             destination_x, new_destination_y, destination_yaw,
                             small_grid, conflict_area_bounds['min_col'], conflict_area_bounds['min_row'],
                             padding['pad_x'], padding['pad_y']
                             )
+                            hybrid_astar_end = time.time()
+                            update_path_start = time.time()
                             if updated_path is not None:
                                 new_path = stitch_paths(path, updated_path, conflict_area_bounds, padding)
                             # Add the last destination to the path after conflict resolution
@@ -1325,13 +1360,14 @@ def game_loop(args):
                             #     np.append(path.y, last_destination[1])
                             else:
                                 print('No new path found after conflict resolution')
-
+                            
                             path_follower = follow_path_with_pid(world.player, new_path, speed=6)
                             print("Calculated final path after conflict resolution")
                             player_x, player_y = hybrid_astar.world_to_grid(player_x, player_y, 500 // 2, 0.5)
                             player_x = player_x - conflict_area_bounds['min_col']
                             player_y = player_y - conflict_area_bounds['min_row']
 
+                            update_path_end = time.time()
                             # if player_y > new_destination_y:
                             #     print("Control side: player_x, player_y after conflict resolution:", player_y, new_destination_y)
                                 #break
@@ -1380,6 +1416,80 @@ def game_loop(args):
             # subscriber.close()
             # print("Subscriber closed")
             app.quit()
+            end_loop_time = time.time()
+            elapsed_time = (end_loop_time - start_loop_time)
+            os.makedirs("csv_time_data/conflict", exist_ok=True)
+            os.makedirs("csv_time_data/no_conflict", exist_ok=True)
+            if conflict:
+                csv_file = os.path.join("csv_time_data/conflict", "conflict.csv")
+                with open(csv_file, "a", newline="") as f:
+                    writer = csv.writer(f)
+                    writer.writerow([start_loop_time, end_loop_time, elapsed_time])
+                if reachability_calculation_start is not None and reachability_calculation_end is not None:
+                    reachability_time = (reachability_calculation_end - reachability_calculation_start)
+                    reach_csv_file = os.path.join("csv_time_data/conflict", "reachability_calculation.csv")
+                    with open(reach_csv_file, "a", newline="") as f:
+                        writer = csv.writer(f)
+                        writer.writerow([reachability_calculation_start, reachability_calculation_end, reachability_time])
+                if occupationgrid_generation_start is not None and occupationgrid_generation_end is not None:
+                    occupationgrid_time = (occupationgrid_generation_end - occupationgrid_generation_start)
+                    occupation_csv_file = os.path.join("csv_time_data/conflict", "occupancygrid_generation.csv")
+                    with open(occupation_csv_file, "a", newline="") as f:
+                        writer = csv.writer(f)
+                        writer.writerow([occupationgrid_generation_start, occupationgrid_generation_end, occupationgrid_time])
+                if solution_start is not None and solution_end is not None:
+                    solution_time = (solution_end - solution_start)
+                    solution_csv_file = os.path.join("csv_time_data/conflict", "solution.csv")
+                    with open(solution_csv_file, "a", newline="") as f:
+                        writer = csv.writer(f)
+                        writer.writerow([solution_start, solution_end, solution_time])
+                if update_path_start is not None and update_path_end is not None:
+                    update_path_time = (update_path_end - update_path_start)
+                    update_csv_file = os.path.join("csv_time_data/conflict", "update_path.csv")
+                    with open(update_csv_file, "a", newline="") as f:
+                        writer = csv.writer(f)
+                        writer.writerow([update_path_start, update_path_end, update_path_time])
+                if hybrid_astar_start is not None and hybrid_astar_end is not None:
+                    hybrid_astar_time = (hybrid_astar_end - hybrid_astar_start)
+                    hybrid_csv_file = os.path.join("csv_time_data/conflict", "hybrid_astar.csv")
+                    with open(hybrid_csv_file, "a", newline="") as f:
+                        writer = csv.writer(f)
+                        writer.writerow([hybrid_astar_start, hybrid_astar_end, hybrid_astar_time])
+            else:
+                csv_file = os.path.join("csv_time_data/no_conflict", "no_conflict.csv")
+                with open(csv_file, "a", newline="") as f:
+                    writer = csv.writer(f)
+                    writer.writerow([start_loop_time, end_loop_time, elapsed_time])
+                if reachability_calculation_start is not None and reachability_calculation_end is not None:
+                    reachability_time = (reachability_calculation_end - reachability_calculation_start)
+                    reach_csv_file = os.path.join("csv_time_data/no_conflict", "reachability_calculation.csv")
+                    with open(reach_csv_file, "a", newline="") as f:
+                        writer = csv.writer(f)
+                        writer.writerow([reachability_calculation_start, reachability_calculation_end, reachability_time])
+                if occupationgrid_generation_start is not None and occupationgrid_generation_end is not None:
+                    occupationgrid_time = (occupationgrid_generation_end - occupationgrid_generation_start)
+                    occupation_csv_file = os.path.join("csv_time_data/no_conflict", "occupationgrid_generation.csv")
+                    with open(occupation_csv_file, "a", newline="") as f:
+                        writer = csv.writer(f)
+                        writer.writerow([occupationgrid_generation_start, occupationgrid_generation_end, occupationgrid_time])
+                if solution_start is not None and solution_end is not None:
+                    solution_time = (solution_end - solution_start)
+                    solution_csv_file = os.path.join("csv_time_data/no_conflict", "solution.csv")
+                    with open(solution_csv_file, "a", newline="") as f:
+                        writer = csv.writer(f)
+                        writer.writerow([solution_start, solution_end, solution_time])
+                if update_path_start is not None and update_path_end is not None:
+                    update_path_time = (update_path_end - update_path_start)
+                    update_csv_file = os.path.join("csv_time_data/no_conflict", "update_path.csv")
+                    with open(update_csv_file, "a", newline="") as f:
+                        writer = csv.writer(f)
+                        writer.writerow([update_path_start, update_path_end, update_path_time])
+                if hybrid_astar_start is not None and hybrid_astar_end is not None:
+                    hybrid_astar_time = (hybrid_astar_end - hybrid_astar_start)
+                    hybrid_csv_file = os.path.join("csv_time_data/no_conflict", "hybrid_astar.csv")
+                    with open(hybrid_csv_file, "a", newline="") as f:
+                        writer = csv.writer(f)
+                        writer.writerow([hybrid_astar_start, hybrid_astar_end, hybrid_astar_time])
 
 
     finally:
@@ -1397,6 +1507,8 @@ def game_loop(args):
             world.player.destroy()
         pygame.quit()
         occupationgrid.stop_visualization()
+        end_time = time.time()
+        print(f"Simulation ended. Total time: {end_time - start_time}")
 
 
 # ==============================================================================

@@ -929,7 +929,7 @@ def game_loop(args):
         client = carla.Client(args.host, args.port)
         client.set_timeout(60.0)
 
-        traffic_manager = client.get_trafficmanager()
+        #traffic_manager = client.get_trafficmanager()
         sim_world = client.get_world()
 
         occupationgrid = OccupationGrid(sim_world, cell_size=0.5)
@@ -943,8 +943,9 @@ def game_loop(args):
             settings.fixed_delta_seconds = 0.05
             sim_world.apply_settings(settings)
 
-            traffic_manager.set_synchronous_mode(True)
-
+            #traffic_manager.set_synchronous_mode(True)
+        
+        #if args.visualize:
         display = pygame.display.set_mode(
             (args.width, args.height),
             pygame.HWSURFACE | pygame.DOUBLEBUF)
@@ -1003,9 +1004,10 @@ def game_loop(args):
         # Initialize Qt in the main thread
         app = QApplication([])
         test = CommonRoadSceneGenerator(world.player)
-        window = CommonRoadVisualizer(test.base_config, test.scenario, test.planning_problem, test.world, world.player)
-        window.setGeometry(100, 100, 800, 600)
-        window.show()
+        window = CommonRoadVisualizer(test.base_config, test.scenario, test.planning_problem, test.world, world.player, visualize=args.visualize)
+        if args.visualize:
+            window.setGeometry(100, 100, 800, 600)
+            window.show()
             # Force initial GUI update
         QApplication.processEvents()
 

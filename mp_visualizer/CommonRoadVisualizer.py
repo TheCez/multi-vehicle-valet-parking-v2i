@@ -18,10 +18,11 @@ import math
 
 class CommonRoadVisualizer(QMainWindow):
     """Class for visualizing CommonRoad scenarios with MPRenderer in a PyQt application."""
-    def __init__(self, base_config, scenario, planning_problem, world, ego_vehicle=None):
+    def __init__(self, base_config, scenario, planning_problem, world, ego_vehicle=None, visualize = False):
         super().__init__()
-        self.setWindowTitle("CommonRoad Visualization with MPRenderer")
-        
+        self.visualize = visualize
+        if self.visualize:
+            self.setWindowTitle("CommonRoad Visualization with MPRenderer")
         # Initialize Carla client
         self.world = world
         
@@ -31,18 +32,21 @@ class CommonRoadVisualizer(QMainWindow):
         self.base_config = base_config
         self.reach_interface = None  
         self.ego_vehicle = ego_vehicle
-        # Setup layout
-        self.central_widget = QWidget()
-        self.setCentralWidget(self.central_widget)
-        layout = QVBoxLayout(self.central_widget)
+        if self.visualize:
+            # Setup layout
+            self.central_widget = QWidget()
+            self.setCentralWidget(self.central_widget)
+            layout = QVBoxLayout(self.central_widget)
+        
 
         # # Remove excessive margins
         # layout.setContentsMargins(0, 0, 0, 0)  # Zero margins around layout
         # layout.setSpacing(0)  # Remove spacing between widgets
-        
-        # Create matplotlib canvas with MPRenderer
-        self.canvas = MPRendererCanvas(figsize=(12, 10))
-        layout.addWidget(self.canvas)
+
+        if self.visualize:
+            # Create matplotlib canvas with MPRenderer
+            self.canvas = MPRendererCanvas(figsize=(12, 10))
+            layout.addWidget(self.canvas)
         
         # Draw static elements initially
         self.draw_static_elements()
@@ -59,16 +63,17 @@ class CommonRoadVisualizer(QMainWindow):
         # if not isinstance(self.canvas.mp_renderer, MPRenderer):
         #     print("Error: self.canvas.mp_renderer is not of type MPRenderer. Stopping execution.")
         #     return
-        # Draw the scenario (includes lanelets, obstacles, etc.)
-        self.scenario.draw(self.canvas.mp_renderer)
-        
-        # Draw planning problem (includes initial and goal states)
-        if hasattr(self.planning_problem, 'draw'):
-            self.planning_problem.draw(self.canvas.mp_renderer)
-        else:
-            # Create a planning problem set if we only have a single problem
-            planning_problem_set = PlanningProblemSet([self.planning_problem])
-            planning_problem_set.draw(self.canvas.mp_renderer)
+        if self.visualize:
+            # Draw the scenario (includes lanelets, obstacles, etc.)
+            self.scenario.draw(self.canvas.mp_renderer)
+            
+            # Draw planning problem (includes initial and goal states)
+            if hasattr(self.planning_problem, 'draw'):
+                self.planning_problem.draw(self.canvas.mp_renderer)
+            else:
+                # Create a planning problem set if we only have a single problem
+                planning_problem_set = PlanningProblemSet([self.planning_problem])
+                planning_problem_set.draw(self.canvas.mp_renderer)
         
         # Render the canvas
         #self.canvas.render()
@@ -76,12 +81,14 @@ class CommonRoadVisualizer(QMainWindow):
     def update_visualization(self):
         """Update dynamic elements (ego vehicle and reachability analysis)"""
 
-        # with QMutexLocker(self.mutex):
-        # Clear previous visualization
-        self.canvas.clear()
-        
-        # Re-draw static elements
-        self.draw_static_elements()
+        if self.visualize:
+
+            # with QMutexLocker(self.mutex):
+            # Clear previous visualization
+            self.canvas.clear()
+            
+            # Re-draw static elements
+            self.draw_static_elements()
         polygons = []  # Ensure polygons is always defined
         
         try:
@@ -113,26 +120,28 @@ class CommonRoadVisualizer(QMainWindow):
             self.reach_interface = real_time_reachability_analysis(
                 self.base_config, self.scenario, self.planning_problem
             )
-            
-            # Draw ego vehicle
-            from commonroad.geometry.shape import Rectangle
-            from commonroad.scenario.obstacle import DynamicObstacle, ObstacleType
-            
-            ego_rect = Rectangle(length=4.3, width=1.8, center=np.zeros(2))
-            ego_obstacle = DynamicObstacle(
-                obstacle_id=100000,
-                obstacle_type=ObstacleType.CAR,
-                obstacle_shape=ego_rect,
-                initial_state=initial_state
-            )
 
-            # Create a proper DrawParams object for dynamic obstacles
-            from commonroad.visualization.draw_params import DynamicObstacleParams
-            draw_params = DynamicObstacleParams()
-            draw_params.facecolor = 'red'  # Set the color property
+            if self.visualize:
             
-            # Draw the ego vehicle with custom styling
-            ego_obstacle.draw(self.canvas.mp_renderer, draw_params=draw_params)
+                # Draw ego vehicle
+                from commonroad.geometry.shape import Rectangle
+                from commonroad.scenario.obstacle import DynamicObstacle, ObstacleType
+                
+                ego_rect = Rectangle(length=4.3, width=1.8, center=np.zeros(2))
+                ego_obstacle = DynamicObstacle(
+                    obstacle_id=100000,
+                    obstacle_type=ObstacleType.CAR,
+                    obstacle_shape=ego_rect,
+                    initial_state=initial_state
+                )
+
+                # Create a proper DrawParams object for dynamic obstacles
+                from commonroad.visualization.draw_params import DynamicObstacleParams
+                draw_params = DynamicObstacleParams()
+                draw_params.facecolor = 'red'  # Set the color property
+                
+                # Draw the ego vehicle with custom styling
+                ego_obstacle.draw(self.canvas.mp_renderer, draw_params=draw_params)
             
             # Draw reachable sets if available
             if self.reach_interface:
@@ -145,23 +154,26 @@ class CommonRoadVisualizer(QMainWindow):
         except Exception as e:
             print(f"Error in update_visualization: {e}")
         
-        # Render the updated visualization
-        self.canvas.render()
+        if self.visualize: 
+            # Render the updated visualization
+            self.canvas.render()
         # Return polygons for further processing if needed
         return polygons
 
     def draw_reachable_area(self, current_step):
         """Draw the reachable area for the current time step"""
-        # generate default drawing parameters
-        config = self.reach_interface.config
-        draw_params = generate_default_drawing_parameters(config)
-        palette = sns.color_palette("GnBu_d", 3)
-        edge_color = (palette[0][0] * 0.75, palette[0][1] * 0.75, palette[0][2] * 0.75)
-        draw_params.shape.facecolor = palette[0]
-        draw_params.shape.edgecolor = edge_color
+        if self.visualize:
+            # generate default drawing parameters
+            config = self.reach_interface.config
+            draw_params = generate_default_drawing_parameters(config)
+            palette = sns.color_palette("GnBu_d", 3)
+            edge_color = (palette[0][0] * 0.75, palette[0][1] * 0.75, palette[0][2] * 0.75)
+            draw_params.shape.facecolor = palette[0]
+            draw_params.shape.edgecolor = edge_color
         # Get reachable set nodes
         list_nodes = self.reach_interface.reachable_set_at_step(current_step)
-        draw_reachable_sets(list_nodes, config, self.canvas.mp_renderer, draw_params)
+        if self.visualize:
+            draw_reachable_sets(list_nodes, config, self.canvas.mp_renderer, draw_params)
         # Convert reachable set rectangles to polygons and return them
 
         clcs = self.reach_interface.config.planning.CLCS
