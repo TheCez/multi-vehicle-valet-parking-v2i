@@ -114,72 +114,72 @@ class GridPatternPredictor:
         print(f"Model loaded from {filepath}")
         return model
 
-# ------------------------
-# Example Usage:
+# # ------------------------
+# # Example Usage:
 
-# 1. Prepare your data
-# Load augmented dataset
-with open('training_data/input/augmented_grids2.pkl', 'rb') as f:
-    augmented_dataset = pickle.load(f)
+# # 1. Prepare your data
+# # Load augmented dataset
+# with open('training_data/input/augmented_grids2.pkl', 'rb') as f:
+#     augmented_dataset = pickle.load(f)
 
-# # Find largest grid dimensions
-# max_rows = max(grid.shape[0] for grid in augmented_dataset)
-# max_cols = max(grid.shape[1] for grid in augmented_dataset)
+# # # Find largest grid dimensions
+# # max_rows = max(grid.shape[0] for grid in augmented_dataset)
+# # max_cols = max(grid.shape[1] for grid in augmented_dataset)
 
-# # Pad all grids to largest dimension with value 1
-# padded_dataset = []
-# for grid in augmented_dataset:
-#     pad_rows = max_rows - grid.shape[0]
-#     pad_cols = max_cols - grid.shape[1]
-#     padded_grid = np.pad(grid, ((0, pad_rows), (0, pad_cols)), mode='constant', constant_values=1)
-#     padded_dataset.append(padded_grid)
+# # # Pad all grids to largest dimension with value 1
+# # padded_dataset = []
+# # for grid in augmented_dataset:
+# #     pad_rows = max_rows - grid.shape[0]
+# #     pad_cols = max_cols - grid.shape[1]
+# #     padded_grid = np.pad(grid, ((0, pad_rows), (0, pad_cols)), mode='constant', constant_values=1)
+# #     padded_dataset.append(padded_grid)
 
-# augmented_dataset = padded_dataset
+# # augmented_dataset = padded_dataset
 
-# Load corresponding coordinates
-with open('training_data/input/augmented_coords2.pkl', 'rb') as f:
-    augmented_coords = pickle.load(f)
+# # Load corresponding coordinates
+# with open('training_data/input/augmented_coords2.pkl', 'rb') as f:
+#     augmented_coords = pickle.load(f)
 
-# Split data into training and test sets (e.g., 80% train, 20% test)
-X_train, X_test, y_train, y_test = train_test_split(
-    augmented_dataset, augmented_coords, test_size=0.2, random_state=42
-)
+# # Split data into training and test sets (e.g., 80% train, 20% test)
+# X_train, X_test, y_train, y_test = train_test_split(
+#     augmented_dataset, augmented_coords, test_size=0.2, random_state=42
+# )
 
-# 2. Train the model
-predictor = GridPatternPredictor()
-predictor.train(X_train, y_train)
+# # 2. Train the model
+# predictor = GridPatternPredictor()
+# predictor.train(X_train, y_train)
 
-#3. Predict on new grid
-# # Predict on test dataset and show first 5 predicted and real values
-# test_preds = predictor.batch_predict(X_test)
-# for i in range(10):
-#     print(f"Predicted: {test_preds[i]}, Actual: {y_test[i]}")
+# #3. Predict on new grid
+# # # Predict on test dataset and show first 5 predicted and real values
+# # test_preds = predictor.batch_predict(X_test)
+# # for i in range(10):
+# #     print(f"Predicted: {test_preds[i]}, Actual: {y_test[i]}")
 
-# Load original grids and coordinates
-with open('training_data/input/original_grids.pkl', 'rb') as f:
-    original_grids = pickle.load(f)
-with open('training_data/input/original_coords.pkl', 'rb') as f:
-    original_coords = pickle.load(f)
+# # Load original grids and coordinates
+# with open('training_data/input/original_grids.pkl', 'rb') as f:
+#     original_grids = pickle.load(f)
+# with open('training_data/input/original_coords.pkl', 'rb') as f:
+#     original_coords = pickle.load(f)
 
-# # Pad original grids to match training grid shape
-# padded_original_grids = []
-# for grid in original_grids:
-#     pad_rows = predictor.grid_shape[0] - grid.shape[0]
-#     pad_cols = predictor.grid_shape[1] - grid.shape[1]
-#     padded_grid = np.pad(grid, ((0, pad_rows), (0, pad_cols)), mode='constant', constant_values=1)
-#     padded_original_grids.append(padded_grid)
+# # # Pad original grids to match training grid shape
+# # padded_original_grids = []
+# # for grid in original_grids:
+# #     pad_rows = predictor.grid_shape[0] - grid.shape[0]
+# #     pad_cols = predictor.grid_shape[1] - grid.shape[1]
+# #     padded_grid = np.pad(grid, ((0, pad_rows), (0, pad_cols)), mode='constant', constant_values=1)
+# #     padded_original_grids.append(padded_grid)
 
-# Predict on padded original grids
-original_preds = predictor.batch_predict(original_grids)
+# # Predict on padded original grids
+# original_preds = predictor.batch_predict(original_grids)
 
-# Display predicted and real coordinates
-for i in range(len(original_preds)):
-    print(f"Predicted: {original_preds[i]}, Actual: {original_coords[i]}")
+# # Display predicted and real coordinates
+# for i in range(len(original_preds)):
+#     print(f"Predicted: {original_preds[i]}, Actual: {original_coords[i]}")
 
 
 
-# # 4. Save model
-predictor.save('grid_predictor_working_augmented.pkl')
+# # # 4. Save model
+# predictor.save('grid_predictor_working_augmented.pkl')
 
-# 5. Load model later
-# predictor = GridPatternPredictor.load('grid_predictor.pkl')
+# # 5. Load model later
+# # predictor = GridPatternPredictor.load('grid_predictor.pkl')

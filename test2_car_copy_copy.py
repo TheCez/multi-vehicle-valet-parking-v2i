@@ -1431,75 +1431,75 @@ def game_loop(args):
             app.quit()
             end_loop_time = time.time()
             elapsed_time = (end_loop_time - start_loop_time)
-            os.makedirs("csv_time_data/conflict", exist_ok=True)
-            os.makedirs("csv_time_data/no_conflict", exist_ok=True)
+            os.makedirs("csv_time_data/conflict_car1", exist_ok=True)
+            os.makedirs("csv_time_data/no_conflict_car1", exist_ok=True)
             if conflict:
-                csv_file = os.path.join("csv_time_data/conflict", "conflict.csv")
+                csv_file = os.path.join("csv_time_data/conflict_car1", "conflict.csv")
                 with open(csv_file, "a", newline="") as f:
                     writer = csv.writer(f)
                     writer.writerow([start_loop_time, end_loop_time, elapsed_time])
                 if reachability_calculation_start is not None and reachability_calculation_end is not None:
                     reachability_time = (reachability_calculation_end - reachability_calculation_start)
-                    reach_csv_file = os.path.join("csv_time_data/conflict", "reachability_calculation.csv")
+                    reach_csv_file = os.path.join("csv_time_data/conflict_car1", "reachability_calculation.csv")
                     with open(reach_csv_file, "a", newline="") as f:
                         writer = csv.writer(f)
                         writer.writerow([reachability_calculation_start, reachability_calculation_end, reachability_time])
                 if occupationgrid_generation_start is not None and occupationgrid_generation_end is not None:
                     occupationgrid_time = (occupationgrid_generation_end - occupationgrid_generation_start)
-                    occupation_csv_file = os.path.join("csv_time_data/conflict", "occupancygrid_generation.csv")
+                    occupation_csv_file = os.path.join("csv_time_data/conflict_car1", "occupancygrid_generation.csv")
                     with open(occupation_csv_file, "a", newline="") as f:
                         writer = csv.writer(f)
                         writer.writerow([occupationgrid_generation_start, occupationgrid_generation_end, occupationgrid_time])
                 if solution_start is not None and solution_end is not None:
                     solution_time = (solution_end - solution_start)
-                    solution_csv_file = os.path.join("csv_time_data/conflict", "solution.csv")
+                    solution_csv_file = os.path.join("csv_time_data/conflict_car1", "solution.csv")
                     with open(solution_csv_file, "a", newline="") as f:
                         writer = csv.writer(f)
                         writer.writerow([solution_start, solution_end, solution_time])
                 if update_path_start is not None and update_path_end is not None:
                     update_path_time = (update_path_end - update_path_start)
-                    update_csv_file = os.path.join("csv_time_data/conflict", "update_path.csv")
+                    update_csv_file = os.path.join("csv_time_data/conflict_car1", "update_path.csv")
                     with open(update_csv_file, "a", newline="") as f:
                         writer = csv.writer(f)
                         writer.writerow([update_path_start, update_path_end, update_path_time])
                 if hybrid_astar_start is not None and hybrid_astar_end is not None:
                     hybrid_astar_time = (hybrid_astar_end - hybrid_astar_start)
-                    hybrid_csv_file = os.path.join("csv_time_data/conflict", "hybrid_astar.csv")
+                    hybrid_csv_file = os.path.join("csv_time_data/conflict_car1", "hybrid_astar.csv")
                     with open(hybrid_csv_file, "a", newline="") as f:
                         writer = csv.writer(f)
                         writer.writerow([hybrid_astar_start, hybrid_astar_end, hybrid_astar_time])
             else:
-                csv_file = os.path.join("csv_time_data/no_conflict", "no_conflict.csv")
+                csv_file = os.path.join("csv_time_data/no_conflict_car1", "no_conflict.csv")
                 with open(csv_file, "a", newline="") as f:
                     writer = csv.writer(f)
                     writer.writerow([start_loop_time, end_loop_time, elapsed_time])
                 if reachability_calculation_start is not None and reachability_calculation_end is not None:
                     reachability_time = (reachability_calculation_end - reachability_calculation_start)
-                    reach_csv_file = os.path.join("csv_time_data/no_conflict", "reachability_calculation.csv")
+                    reach_csv_file = os.path.join("csv_time_data/no_conflict_car1", "reachability_calculation.csv")
                     with open(reach_csv_file, "a", newline="") as f:
                         writer = csv.writer(f)
                         writer.writerow([reachability_calculation_start, reachability_calculation_end, reachability_time])
                 if occupationgrid_generation_start is not None and occupationgrid_generation_end is not None:
                     occupationgrid_time = (occupationgrid_generation_end - occupationgrid_generation_start)
-                    occupation_csv_file = os.path.join("csv_time_data/no_conflict", "occupationgrid_generation.csv")
+                    occupation_csv_file = os.path.join("csv_time_data/no_conflict_car1", "occupationgrid_generation.csv")
                     with open(occupation_csv_file, "a", newline="") as f:
                         writer = csv.writer(f)
                         writer.writerow([occupationgrid_generation_start, occupationgrid_generation_end, occupationgrid_time])
                 if solution_start is not None and solution_end is not None:
                     solution_time = (solution_end - solution_start)
-                    solution_csv_file = os.path.join("csv_time_data/no_conflict", "solution.csv")
+                    solution_csv_file = os.path.join("csv_time_data/no_conflict_car1", "solution.csv")
                     with open(solution_csv_file, "a", newline="") as f:
                         writer = csv.writer(f)
                         writer.writerow([solution_start, solution_end, solution_time])
                 if update_path_start is not None and update_path_end is not None:
                     update_path_time = (update_path_end - update_path_start)
-                    update_csv_file = os.path.join("csv_time_data/no_conflict", "update_path.csv")
+                    update_csv_file = os.path.join("csv_time_data/no_conflict_car1", "update_path.csv")
                     with open(update_csv_file, "a", newline="") as f:
                         writer = csv.writer(f)
                         writer.writerow([update_path_start, update_path_end, update_path_time])
                 if hybrid_astar_start is not None and hybrid_astar_end is not None:
                     hybrid_astar_time = (hybrid_astar_end - hybrid_astar_start)
-                    hybrid_csv_file = os.path.join("csv_time_data/no_conflict", "hybrid_astar.csv")
+                    hybrid_csv_file = os.path.join("csv_time_data/no_conflict_car1", "hybrid_astar.csv")
                     with open(hybrid_csv_file, "a", newline="") as f:
                         writer = csv.writer(f)
                         writer.writerow([hybrid_astar_start, hybrid_astar_end, hybrid_astar_time])

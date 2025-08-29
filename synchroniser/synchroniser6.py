@@ -326,12 +326,13 @@ class Master:
 
                                 if self.decision_to_make:
                                     
-                                    # if not os.path.exists("decision_grids"):
-                                    #     os.makedirs("decision_grids")
+                                    if not os.path.exists("decision_grids"):
+                                        os.makedirs("decision_grids")
 
                                     no_of_cars = Master.no_of_subscribers - 1
 
                                     for subscriber_id, grid in decision_grids.items():
+                                        # np.save(f"decision_grids/decision_grids_{subscriber_id}.npy", grid)
                                         grid = grid[min_r:max_r+1, min_c:max_c+1]
                                         indices = np.argwhere(grid == -2)
                                         #print(len(indices))
@@ -389,27 +390,27 @@ class Master:
                                             }
                                             no_of_cars -= 1                                            
 
+                                        np.save(f"decision_grids/decision_grids_{subscriber_id}.npy", grid)
 
-
-                                        #np.save(f"decision_grids/decision_grids_{subscriber_id}.npy", decision_grid)
-                                    #print("Decisions saved for all subscribers.")
+                                        
+                                    print("Decisions saved for all subscribers.")
                                     self.decision_to_make = False
 
                                 # self.oc.update_visualization2(current_grid=conflict_area)
                                 # self.conflict_solved = {subscriber_id: 'No Conflict' for subscriber_id in occupancy_grids.keys()}
 
-                                conflict_area_temp = conflict_area.copy()
+                                #conflict_area_temp = conflict_area.copy()
                                 
                                 conflict_area, new_path_point, waypoint_og = solve_conflict(conflict_area)
 
-                                if waypoint_og is not None:
-                                    if not os.path.exists("training_data"):
-                                        os.makedirs("training_data")
-                                    np.save(f"training_data/visualization_{self.training_data_no}", conflict_area_temp)
-                                    self.training_data_no += 1
-                                    with open("training_data/waypoints.txt", "a") as f:
-                                        f.write(f"{waypoint_og[0]},{waypoint_og[1]}\n")
-                                        #f.write(f"{waypoint_og[0] + min_r},{waypoint_og[1] + min_c}\n")
+                                # if waypoint_og is not None:
+                                #     if not os.path.exists("training_data"):
+                                #         os.makedirs("training_data")
+                                #     np.save(f"training_data/visualization_{self.training_data_no}", visualization_grid_view)
+                                #     self.training_data_no += 1
+                                #     with open("training_data/waypoints.txt", "a") as f:
+                                #         f.write(f"{new_path_point[0] + min_r},{new_path_point[1] + min_c}\n")
+                                #         #f.write(f"{waypoint_og[0] + min_r},{waypoint_og[1] + min_c}\n")
                                 
 
                                 visualization_grid_view[waypoint_og[0] + min_r, waypoint_og[1] + min_c] = 7

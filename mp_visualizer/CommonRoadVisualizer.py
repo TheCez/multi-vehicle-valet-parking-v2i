@@ -142,42 +142,42 @@ class CommonRoadVisualizer(QMainWindow):
                     polygons = []
 
             decision_scenario = copy.deepcopy(self.scenario)
-            if other_cars is not None:
-                # Create a list to hold obstacles for other vehicles
-                obstacles_to_add = []
-                for car in other_cars:
-                    position, orientation = carla_to_commonroad_transform_actor(car)
-                    velocity = car.get_velocity()
-                    speed = (velocity.x**2 + velocity.y**2 + velocity.z**2)**0.5
-                    angular_velocity = car.get_angular_velocity()
-                    slip_angle = math.atan2(velocity.y, velocity.x)
-                    slip_angle = np.degrees(slip_angle)  # Convert to degrees
+            # if other_cars is not None:
+            #     # Create a list to hold obstacles for other vehicles
+            #     obstacles_to_add = []
+            #     for car in other_cars:
+            #         position, orientation = carla_to_commonroad_transform_actor(car)
+            #         velocity = car.get_velocity()
+            #         speed = (velocity.x**2 + velocity.y**2 + velocity.z**2)**0.5
+            #         angular_velocity = car.get_angular_velocity()
+            #         slip_angle = math.atan2(velocity.y, velocity.x)
+            #         slip_angle = np.degrees(slip_angle)  # Convert to degrees
 
-                    car_rect = Rectangle(length=4.3, width=1.8, center=np.zeros(2))
-                    car_initial_state = InitialState(
-                        position=position,
-                        orientation=orientation,
-                        velocity=speed * 3.6,  # Convert m/s to km/h
-                        #velocity=20,
-                        time_step=0,
-                        yaw_rate=angular_velocity.z,
-                        slip_angle=slip_angle,
-                    )
+            #         car_rect = Rectangle(length=4.3, width=1.8, center=np.zeros(2))
+            #         car_initial_state = InitialState(
+            #             position=position,
+            #             orientation=orientation,
+            #             velocity=speed * 3.6,  # Convert m/s to km/h
+            #             #velocity=20,
+            #             time_step=0,
+            #             yaw_rate=angular_velocity.z,
+            #             slip_angle=slip_angle,
+            #         )
                     
-                    # Add as static obstacle instead of dynamic
-                    car_static_obstacle = StaticObstacle(
-                        obstacle_id=decision_scenario.generate_object_id(),
-                        obstacle_type=ObstacleType.CAR,
-                        obstacle_shape=car_rect,
-                        initial_state=car_initial_state
-                    )
-                    obstacles_to_add.append(car_static_obstacle)
-                    if self.visualize:
-                        car_draw_params = DynamicObstacleParams()
-                        car_draw_params.facecolor = 'blue'
-                        car_static_obstacle.draw(self.canvas.mp_renderer, draw_params=car_draw_params)
-                # Add all obstacles at once
-                decision_scenario.add_objects(obstacles_to_add)
+            #         # Add as static obstacle instead of dynamic
+            #         car_static_obstacle = StaticObstacle(
+            #             obstacle_id=decision_scenario.generate_object_id(),
+            #             obstacle_type=ObstacleType.CAR,
+            #             obstacle_shape=car_rect,
+            #             initial_state=car_initial_state
+            #         )
+            #         obstacles_to_add.append(car_static_obstacle)
+            #         if self.visualize:
+            #             car_draw_params = DynamicObstacleParams()
+            #             car_draw_params.facecolor = 'blue'
+            #             car_static_obstacle.draw(self.canvas.mp_renderer, draw_params=car_draw_params)
+            #     # Add all obstacles at once
+            #     decision_scenario.add_objects(obstacles_to_add)
 
             decision_planning_problem = copy.deepcopy(self.planning_problem)
             decision_planning_problem.initial_state = decision_initial_state
