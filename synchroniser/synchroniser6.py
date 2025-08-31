@@ -326,8 +326,8 @@ class Master:
 
                                 if self.decision_to_make:
                                     
-                                    if not os.path.exists("decision_grids"):
-                                        os.makedirs("decision_grids")
+                                    # if not os.path.exists("decision_grids"):
+                                    #     os.makedirs("decision_grids")
 
                                     no_of_cars = Master.no_of_subscribers - 1
 
@@ -390,7 +390,7 @@ class Master:
                                             }
                                             no_of_cars -= 1                                            
 
-                                        np.save(f"decision_grids/decision_grids_{subscriber_id}.npy", grid)
+                                        # np.save(f"decision_grids/decision_grids_{subscriber_id}.npy", grid)
 
                                         
                                     print("Decisions saved for all subscribers.")

@@ -64,13 +64,13 @@ def real_time_reachability_analysis(base_config, scenario, planning_problem):
     # Update with dynamic scenario
     config = update_with_dynamic_scenario(base_config, scenario, planning_problem)
     
-    # Initialize logger and print configuration summary
-    logger = util_logger.initialize_logger(config)
-    config.print_configuration_summary()
+    # # Initialize logger and print configuration summary
+    # logger = util_logger.initialize_logger(config)
+    # config.print_configuration_summary()
     
     # Compute reachable sets
     reach_interface = ReachableSetInterface(config)
-    reach_interface.compute_reachable_sets()
+    reach_interface.compute_reachable_sets(verbose=False)
     
     # Optionally visualize results
     # util_visual.plot_scenario_with_reachable_sets(reach_interface)

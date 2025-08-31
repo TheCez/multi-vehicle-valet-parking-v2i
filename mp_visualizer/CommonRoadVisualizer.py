@@ -18,6 +18,7 @@ import copy
 from commonroad.geometry.shape import Rectangle
 from commonroad.scenario.obstacle import DynamicObstacle, ObstacleType, StaticObstacle
 from commonroad.visualization.draw_params import DynamicObstacleParams
+import threading
 
 class CommonRoadVisualizer(QMainWindow):
     """Class for visualizing CommonRoad scenarios with MPRenderer in a PyQt application."""
@@ -118,10 +119,20 @@ class CommonRoadVisualizer(QMainWindow):
             )
             self.planning_problem.initial_state = initial_state
             
-            # Perform reachability analysis
-            self.reach_interface = real_time_reachability_analysis(
-                self.base_config, self.scenario, self.planning_problem
-            )
+            # # Perform reachability analysis
+            # self.reach_interface = real_time_reachability_analysis(
+            #     self.base_config, self.scenario, self.planning_problem
+            # )
+
+
+
+            # # Draw reachable sets if available
+            # if self.reach_interface:
+            #     try:
+            #         polygons = self.draw_reachable_area(self.base_config.planning.steps_computation, self.reach_interface)
+            #     except Exception as e:
+            #         print(f"Error in draw_reachable_area: {e}")
+            #         polygons = []
 
             decision_initial_state =InitialState(
                 position=position,
@@ -133,15 +144,8 @@ class CommonRoadVisualizer(QMainWindow):
                 slip_angle=slip_angle,
             )
 
-            # Draw reachable sets if available
-            if self.reach_interface:
-                try:
-                    polygons = self.draw_reachable_area(self.base_config.planning.steps_computation, self.reach_interface)
-                except Exception as e:
-                    print(f"Error in draw_reachable_area: {e}")
-                    polygons = []
-
-            decision_scenario = copy.deepcopy(self.scenario)
+            # decision_scenario = copy.deepcopy(self.scenario)
+            decision_scenario = copy.copy(self.scenario)
             # if other_cars is not None:
             #     # Create a list to hold obstacles for other vehicles
             #     obstacles_to_add = []
@@ -180,12 +184,14 @@ class CommonRoadVisualizer(QMainWindow):
             #     decision_scenario.add_objects(obstacles_to_add)
 
             decision_planning_problem = copy.deepcopy(self.planning_problem)
+            # decision_planning_problem = copy.copy(self.planning_problem)
             decision_planning_problem.initial_state = decision_initial_state
             decision_base_config = copy.deepcopy(self.base_config)
+            # decision_base_config = copy.copy(self.base_config)
             decision_base_config.planning.steps_computation = 12
-            decision_interface = real_time_reachability_analysis(
-                decision_base_config, decision_scenario, decision_planning_problem
-            )
+            # decision_interface = real_time_reachability_analysis(
+            #     decision_base_config, decision_scenario, decision_planning_problem
+            # )
 
             if self.visualize:
             
@@ -216,11 +222,44 @@ class CommonRoadVisualizer(QMainWindow):
             #         print(f"Error in draw_reachable_area: {e}")
             #         polygons = []
 
-            if decision_interface:
+            # Prepare containers for results
+            reachability_results = {}
+
+            def run_reachability(key, config, scenario, planning_problem):
                 try:
-                    decision_polygons = self.draw_reachable_area(decision_base_config.planning.steps_computation, decision_interface)
+                    interface = real_time_reachability_analysis(config, scenario, planning_problem)
+                    reachability_results[key] = interface
                 except Exception as e:
-                    print(f"Error in draw_reachable_area: {e}")
+                    print(f"Error in real_time_reachability_analysis ({key}): {e}")
+                    reachability_results[key] = None
+
+            # Start threads for both reachability analyses
+            threads = []
+            threads.append(threading.Thread(target=run_reachability, args=(
+                "main", self.base_config, self.scenario, self.planning_problem)))
+            threads.append(threading.Thread(target=run_reachability, args=(
+                "decision", decision_base_config, decision_scenario, decision_planning_problem)))
+
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+
+            # Draw reachable sets if available
+            polygons = []
+            if reachability_results.get("main"):
+                try:
+                    polygons = self.draw_reachable_area(self.base_config.planning.steps_computation, reachability_results["main"])
+                except Exception as e:
+                    print(f"Error in draw_reachable_area (main): {e}")
+                    polygons = []
+
+            decision_polygons = []
+            if reachability_results.get("decision"):
+                try:
+                    decision_polygons = self.draw_reachable_area(decision_base_config.planning.steps_computation, reachability_results["decision"])
+                except Exception as e:
+                    print(f"Error in draw_reachable_area (decision): {e}")
                     decision_polygons = []
 
         except Exception as e:
@@ -231,9 +270,47 @@ class CommonRoadVisualizer(QMainWindow):
             self.canvas.render()
         # Return polygons for further processing if needed
         return polygons, decision_polygons
+    
+    def get_reachable_polygons(self, current_step, reach_interface):
+        """Get reachable set polygons for the current time step"""
+
+        # Get reachable set nodes
+        list_nodes = reach_interface.reachable_set_at_step(current_step)
+
+        # Convert reachable set rectangles to polygons and return them
+
+        # clcs = reach_interface.config.planning.CLCS
+        polygons = []
+        for node in list_nodes:
+            vertices = node.position_rectangle.vertices
+            polygons.append(vertices)
+        print(f"Number of polygons in reachable set: {len(polygons)}")
+        # list_nodes = reach_interface.get_reachable_set_at_time_step(current_step)
+        # polygons = []
+        # if list_nodes:
+        #     for node in list_nodes:
+        #         if node.reachable_set is not None:
+        #             cartesian_polygons = convert_to_cartesian_polygons(
+        #                 node.reachable_set, reach_interface.config.scenario.lanelet_network
+        #             )
+        #             polygons.extend(cartesian_polygons)
+        return polygons, list_nodes
+    
 
     def draw_reachable_area(self, current_step, reach_interface=None):
         """Draw the reachable area for the current time step"""
+
+        # Get reachable set nodes
+        list_nodes = reach_interface.reachable_set_at_step(current_step)
+
+        # Convert reachable set rectangles to polygons and return them
+
+        # clcs = reach_interface.config.planning.CLCS
+        # Use list comprehension for faster execution
+        polygons = [node.position_rectangle.vertices for node in list_nodes]
+        print(f"Number of polygons in reachable set: {len(polygons)}")
+
+
         if self.visualize:
             # generate default drawing parameters
             config = reach_interface.config
@@ -242,16 +319,18 @@ class CommonRoadVisualizer(QMainWindow):
             edge_color = (palette[0][0] * 0.75, palette[0][1] * 0.75, palette[0][2] * 0.75)
             draw_params.shape.facecolor = palette[0]
             draw_params.shape.edgecolor = edge_color
-        # Get reachable set nodes
-        list_nodes = reach_interface.reachable_set_at_step(current_step)
-        if self.visualize:
             draw_reachable_sets(list_nodes, config, self.canvas.mp_renderer, draw_params)
-        # Convert reachable set rectangles to polygons and return them
 
-        clcs = reach_interface.config.planning.CLCS
-        polygons = []
-        for node in list_nodes:
-            vertices = node.position_rectangle.vertices
-            polygons.append(vertices)
-        print(f"Number of polygons in reachable set: {len(polygons)}")
+        # # Get reachable set nodes
+        # list_nodes = reach_interface.reachable_set_at_step(current_step)
+
+        # # Convert reachable set rectangles to polygons and return them
+
+        # # clcs = reach_interface.config.planning.CLCS
+        # polygons = []
+        # for node in list_nodes:
+        #     vertices = node.position_rectangle.vertices
+        #     polygons.append(vertices)
+        # print(f"Number of polygons in reachable set: {len(polygons)}")
+
         return polygons
