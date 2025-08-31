@@ -12,6 +12,7 @@ import os
 import queue
 import argparse
 import csv
+import cv2
 
 
 class Master:
@@ -80,6 +81,7 @@ class Master:
         self.overlap_obs = None
         self.decision_to_make = True
         self.training_data_no = 0
+        self.time_step_data = 0
         
 
         if self.visualize:
@@ -265,20 +267,23 @@ class Master:
 
                             # np.save("fast_grid/grid.npy", grid)
                             grids = list(occupancy_grids.values())
+                            decisiopn_grids = list(decision_grids.values())
                             shape = grids[0].shape
 
                             merged = grids[0].copy()
+                            merged_decision = decisiopn_grids[0].copy()
                             vis_grid = grids[0].copy()
                             conflict_mask = np.zeros(shape, dtype=bool)
 
                             # Merge all grids
                             significant_mask = np.zeros(shape, dtype=bool)
-                            for grid in grids[1:]:
+                            for grid, decision_grid in zip(grids[1:], decisiopn_grids[1:]):
                                 # Update merged + detect conflict
                                 reach3 = (merged == 3) | (merged == 5)
                                 reach5 = (grid == 3) | (grid == 5)
                                 conflict_mask |= reach3 & reach5
-                                significant_mask |= (np.abs(merged) >= 2) | (np.abs(grid) >= 2)
+                                significant_mask |= (np.abs(merged_decision) >= 2) | (np.abs(decision_grid) >= 2)
+
                                 # Update merged where different
                                 diff = merged != grid
                                 merged[diff] = grid[diff]
@@ -303,6 +308,8 @@ class Master:
 
                             # np.save("fast_grid/vis_grid.npy", vis_grid)
                             visualization_grid_view = vis_grid.copy()
+
+                            # conflict_area = None
                             
                             # Process conflicts
                             if conflict_mask.any():
@@ -319,10 +326,19 @@ class Master:
                                             
                                 rows, cols = np.where(significant_mask)
                                 min_r, max_r = rows.min(), rows.max()
-                                min_c = max(cols.min() , 0)-5
-                                max_c = min(cols.max() , vis_grid.shape[1] - 1) + 5
+                                min_c = max(cols.min() , 0)#-5
+                                max_c = min(cols.max() , vis_grid.shape[1] - 1)# + 5
 
                                 conflict_area = vis_grid[min_r:max_r+1, min_c:max_c+1]
+
+                                # Save photo of the conflict area before solving
+                                if self.collect_data:
+                                    abs_current_grid = np.abs(conflict_area)
+                                    colored_grid = self.oc.color_map[abs_current_grid]
+                                    if not os.path.exists("photos/conflict_area_before"):
+                                        os.makedirs("photos/conflict_area_before")
+                                    cv2.imwrite(f"photos/conflict_area_before/conflict_area_{self.time_step_data}.png", colored_grid)
+                                    # self.time_step_data += 1
 
                                 if self.decision_to_make:
                                     
@@ -403,6 +419,15 @@ class Master:
                                 
                                 conflict_area, new_path_point, waypoint_og = solve_conflict(conflict_area)
 
+                                # Save photo of the conflict area after solving
+                                if self.collect_data:
+                                    abs_current_grid = np.abs(conflict_area)
+                                    colored_grid = self.oc.color_map[abs_current_grid]
+                                    if not os.path.exists("photos/conflict_area_after"):
+                                        os.makedirs("photos/conflict_area_after")
+                                    cv2.imwrite(f"photos/conflict_area_after/conflict_area_{self.time_step_data}.png", colored_grid)
+                                    self.time_step_data += 1
+
                                 # if waypoint_og is not None:
                                 #     if not os.path.exists("training_data"):
                                 #         os.makedirs("training_data")
@@ -454,7 +479,7 @@ class Master:
                                 solver_time_end = time.time()
 
                                 if solver_time_start is not None and solver_time_end is not None:
-                                    csv_path = "csv_time_data/conflict/solver.csv"
+                                    csv_path = "csv_time_data/solver.csv"
                                     solver_time = solver_time_end - solver_time_start
                                     with open(csv_path, "a", newline="") as csvfile:
                                         writer = csv.writer(csvfile)
@@ -467,7 +492,22 @@ class Master:
                             #self.oc.update_visualization2(current_grid=vis_grid)
                             if self.visualize:
                                 #self.oc.update_visualization2(current_grid=vis_grid)
-                                self.oc.update_visualization2(current_grid=visualization_grid_view)
+                                # self.oc.update_visualization2(current_grid=visualization_grid_view)
+
+                                # if conflict_area is None:
+                                #     visual = vis_grid
+                                # else:
+                                #     visual = conflict_area
+
+
+                                # Add a black line (value 1) between the grids
+                                separator = np.ones((visualization_grid_view.shape[0], 2), dtype=visualization_grid_view.dtype)
+                                # Concatenate visualization_grid_view, separator, and temp_grid_visualization horizontally
+                                combined_grid = np.concatenate(
+                                    (visualization_grid_view, separator, vis_grid), axis=1
+                                )
+                                # Visualize the combined grid
+                                self.oc.update_visualization2(current_grid=combined_grid, zoom=False)
 
                             #     if len(occupancy_grids) == 1:
                             #         #print("Only one occupancy grid received, no conflicts to resolve.")
