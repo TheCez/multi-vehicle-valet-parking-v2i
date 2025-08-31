@@ -184,7 +184,7 @@ class World(object):
             spawn_points = self.map.get_spawn_points()
             spawn_point = random.choice(spawn_points) if spawn_points else carla.Transform()
             spawn_point = spawn_points[5]
-            custom_location = carla.Location(x=26, y=70, z=2)
+            custom_location = carla.Location(x=26, y=70, z=0.5)
             custom_rotation = carla.Rotation(pitch=0, yaw=270, roll=0)
             spawn_point = carla.Transform(custom_location, custom_rotation)
             self.player = self.world.try_spawn_actor(blueprint, spawn_point)

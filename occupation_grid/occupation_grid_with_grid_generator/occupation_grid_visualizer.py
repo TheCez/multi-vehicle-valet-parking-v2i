@@ -91,7 +91,7 @@ class OccupationGridVisualizer:
 
 
 
-    def update_visualization2(self, zoom_factor=2, context_size=200, current_grid=None):
+    def update_visualization2(self, zoom_factor=2, context_size=200, current_grid=None, zoom = True):
         """
         Updates the visualization with the current ego vehicle position.
         Shows a zoomed-in context around the ego vehicle if present.
@@ -115,43 +115,48 @@ class OccupationGridVisualizer:
         #         colored_grid, polygons, color=(0, 0, 0), thickness=1 # Using black for road lines
         #     )
 
-        # Find ego vehicle position
-        ego_positions = np.where(current_grid == 2)
-        if len(ego_positions[0]) > 0:
-            # Center context window around ego vehicle
-            center_y, center_x = ego_positions[0].mean(), ego_positions[1].mean()
-            start_y = max(0, int(center_y - context_size // 2))
-            end_y = min(self.grid.shape[0], int(center_y + context_size // 2))
-            start_x = max(0, int(center_x - context_size // 2))
-            end_x = min(self.grid.shape[1], int(center_x + context_size // 2))
-            # Adjust window if near grid edges
-            if end_y >= self.grid.shape[0] - 10:
-                shift = end_y - (self.grid.shape[0] - 10)
-                start_y = max(0, start_y - shift)
-                end_y = self.grid.shape[0]
-            if start_y <= 10:
-                shift = 10 - start_y
-                end_y = min(self.grid.shape[0], end_y + shift)
-                start_y = 0
-            if end_x >= self.grid.shape[1] - 10:
-                shift = end_x - (self.grid.shape[1] - 10)
-                start_x = max(0, start_x - shift)
-                end_x = self.grid.shape[1]
-            if start_x <= 10:
-                shift = 10 - start_x
-                end_x = min(self.grid.shape[1], end_x + shift)
-                start_x = 0
-            # Extract and zoom context window
-            context_grid = colored_grid[start_y:end_y, start_x:end_x]
-            # Draw polygons if provided
-        # # Draw polygons if provided
-        #     if polygons is not None:
-        #         ego_transform = ego_vehicle.get_transform()
-        #         context_grid = self.draw_polygons_on_grid(
-        #             context_grid, polygons, ego_vehicle, start_x, start_y
-        #         )
-            zoomed_grid = cv2.resize(context_grid, None, fx=zoom_factor, fy=zoom_factor, interpolation=cv2.INTER_NEAREST)
-            cv2.imshow(self.window_name, zoomed_grid)
+        if zoom:
+
+            # Find ego vehicle position
+            ego_positions = np.where(current_grid == 2)
+            if len(ego_positions[0]) > 0:
+                # Center context window around ego vehicle
+                center_y, center_x = ego_positions[0].mean(), ego_positions[1].mean()
+                start_y = max(0, int(center_y - context_size // 2))
+                end_y = min(self.grid.shape[0], int(center_y + context_size // 2))
+                start_x = max(0, int(center_x - context_size // 2))
+                end_x = min(self.grid.shape[1], int(center_x + context_size // 2))
+                # Adjust window if near grid edges
+                if end_y >= self.grid.shape[0] - 10:
+                    shift = end_y - (self.grid.shape[0] - 10)
+                    start_y = max(0, start_y - shift)
+                    end_y = self.grid.shape[0]
+                if start_y <= 10:
+                    shift = 10 - start_y
+                    end_y = min(self.grid.shape[0], end_y + shift)
+                    start_y = 0
+                if end_x >= self.grid.shape[1] - 10:
+                    shift = end_x - (self.grid.shape[1] - 10)
+                    start_x = max(0, start_x - shift)
+                    end_x = self.grid.shape[1]
+                if start_x <= 10:
+                    shift = 10 - start_x
+                    end_x = min(self.grid.shape[1], end_x + shift)
+                    start_x = 0
+                # Extract and zoom context window
+                context_grid = colored_grid[start_y:end_y, start_x:end_x]
+                # Draw polygons if provided
+            # # Draw polygons if provided
+            #     if polygons is not None:
+            #         ego_transform = ego_vehicle.get_transform()
+            #         context_grid = self.draw_polygons_on_grid(
+            #             context_grid, polygons, ego_vehicle, start_x, start_y
+            #         )
+                zoomed_grid = cv2.resize(context_grid, None, fx=zoom_factor, fy=zoom_factor, interpolation=cv2.INTER_NEAREST)
+                cv2.imshow(self.window_name, zoomed_grid)
+            else:
+                # Show full grid if ego vehicle not found
+                cv2.imshow(self.window_name, colored_grid)
         else:
             # Show full grid if ego vehicle not found
             cv2.imshow(self.window_name, colored_grid)

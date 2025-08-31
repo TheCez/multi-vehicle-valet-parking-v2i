@@ -8,7 +8,9 @@ def solve_conflict(conflict_area):
     It should contain the logic to resolve conflicts in the CommonRoad scenarios.
     """
     # Implement conflict resolution logic here
-    conflict_area[(conflict_area == 3) | (conflict_area == -2) | (conflict_area == 6)] = 0
+    conflict_area[(conflict_area == 3) | (conflict_area == -2) 
+                  #| (conflict_area == 6)
+                  ] = 0
 
     #conflict_area[conflict_area == 2] = 1
     start_path_finding =False
@@ -62,9 +64,13 @@ def solve_conflict(conflict_area):
                     elif val == 5:
                         five_count += 1
             if zero_or_two_count == 2 and five_count == 4:
-                conflict_area[row, col] = 3
+                #conflict_area[row, col] = 3
                 waypoint = (row, col)
-        conflict_area[(conflict_area == -4) | (conflict_area == 5)] = 0
+        conflict_area[
+            (conflict_area == -4) | 
+            (conflict_area == 5)] = 0
+
+        conflict_area[waypoint[0], waypoint[1]] = 4
         
     return conflict_area , waypoint if start_path_finding else None
     
