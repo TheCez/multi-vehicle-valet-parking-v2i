@@ -111,8 +111,8 @@ class CommonRoadVisualizer(QMainWindow):
             initial_state = InitialState(
                 position=position,
                 orientation=orientation,
-                #velocity=speed * 3.6,  # Convert m/s to km/h
-                velocity = 10,
+                velocity=speed * 3.6,  # Convert m/s to km/h
+                # velocity = 10,
                 time_step=0,
                 yaw_rate=angular_velocity.z,
                 slip_angle=slip_angle,

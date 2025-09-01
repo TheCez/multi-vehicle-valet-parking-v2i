@@ -7,7 +7,7 @@ import threading
 import numpy as np
 import pickle
 from occupation_grid.occupation_grid_with_grid_generator.occupation_grid_visualizer import OccupationGridVisualizer
-from conflict_solver.solver2 import solve_conflict
+from conflict_solver.solver4 import solve_conflict
 import os
 import queue
 import argparse
@@ -316,12 +316,12 @@ class Master:
 
                                 #print("Conflicts detected, solving...")
                                 
-                                if self.overlap_obs is None:
-                                    self.overlap_obs = conflict_mask
-                                    # coords = np.where(conflict_mask)
-                                    # self.overlap_obs = list(zip(coords[0], coords[1]))
+                                # if self.overlap_obs is None:
+                                #     self.overlap_obs = conflict_mask
+                                #     # coords = np.where(conflict_mask)
+                                #     # self.overlap_obs = list(zip(coords[0], coords[1]))
 
-                                vis_grid[self.overlap_obs] = 1  # mark conflicts               
+                                # vis_grid[self.overlap_obs] = 1  # mark conflicts               
                                 
                                             
                                 rows, cols = np.where(significant_mask)
@@ -446,11 +446,12 @@ class Master:
                                 # print('New path point:', new_path_point)
                                 
                                 # Identify subscriber whose car_value == 4 (if any)
-                                sub_with_4 = next(
-                                    (sid for sid, sd in self.subscribers_data.items()
-                                    if sd['car_value'] == 4),
-                                    None
-                                )
+                                if new_path_point is not None:
+                                    sub_with_4 = next(
+                                        (sid for sid, sd in self.subscribers_data.items()
+                                        if sd['car_value'] == 4),
+                                        None
+                                    )
                                 # if new_path_point is not None:
                                 #     if np.any((conflict_area == 4)):
                                 #         for sub_id, sub_data in self.subscribers_data.items():
