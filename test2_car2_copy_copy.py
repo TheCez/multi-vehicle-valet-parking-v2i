@@ -82,6 +82,7 @@ import numpy as np
 import os
 from scipy.ndimage import gaussian_filter1d
 import csv
+import threading
 # ==============================================================================
 # -- Global functions ----------------------------------------------------------
 # ==============================================================================
@@ -1092,11 +1093,24 @@ def game_loop(args):
                 #test.window.update_visualization()
                         # Update visualization
                 reachability_calculation_start = time.time()
-                # # Get all car objects except the ego vehicle
-                # all_vehicles = world.world.get_actors().filter('vehicle.*')
-                # other_cars = [v for v in all_vehicles if v.id != world.player.id]
+                # Get all car objects except the ego vehicle
+                all_vehicles = world.world.get_actors().filter('vehicle.*')
+                other_cars = [v for v in all_vehicles if v.id != world.player.id]
                 # polygons,  decision_polygons = window.update_visualization(other_cars=other_cars)
-                polygons,  decision_polygons = window.update_visualization()
+                # Run update_visualization in a separate thread to avoid blocking
+
+                result_container = {}
+
+                def run_update_visualization():
+                    # You can pass other_cars if needed: window.update_visualization(other_cars=other_cars)
+                    result_container['polygons'], result_container['decision_polygons'] = window.update_visualization(other_cars=other_cars)
+
+                vis_thread = threading.Thread(target=run_update_visualization)
+                vis_thread.start()
+                vis_thread.join()  # Wait for visualization to finish
+
+                polygons = result_container.get('polygons')
+                decision_polygons = result_container.get('decision_polygons')
                 reachability_calculation_end = time.time()
                 occupationgrid_generation_start = time.time()
                 reach_occupancygrid, car_box_index = occupationgrid.generate_occupation_grid(world.player, polygons)

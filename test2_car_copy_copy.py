@@ -82,6 +82,7 @@ import numpy as np
 import os
 from scipy.ndimage import gaussian_filter1d
 import csv
+import threading
 # ==============================================================================
 # -- Global functions ----------------------------------------------------------
 # ==============================================================================
@@ -1093,10 +1094,18 @@ def game_loop(args):
                         # Update visualization
                 reachability_calculation_start = time.time()
                 # Get all car objects except the ego vehicle
-                # all_vehicles = world.world.get_actors().filter('vehicle.*')
-                # other_cars = [v for v in all_vehicles if v.id != world.player.id]
+                all_vehicles = world.world.get_actors().filter('vehicle.*')
+                other_cars = [v for v in all_vehicles if v.id != world.player.id]
                 # polygons,  decision_polygons = window.update_visualization(other_cars=other_cars)
-                polygons,  decision_polygons = window.update_visualization()
+                # Use threading to call update_visualization
+                def update_visualization_thread(result_container):
+                    result_container.append(window.update_visualization(other_cars=other_cars))
+
+                result_container = []
+                vis_thread = threading.Thread(target=update_visualization_thread, args=(result_container,))
+                vis_thread.start()
+                vis_thread.join()
+                polygons, decision_polygons = result_container[0]
                 reachability_calculation_end = time.time()
                 occupationgrid_generation_start = time.time()
                 reach_occupancygrid, car_box_index = occupationgrid.generate_occupation_grid(world.player, polygons)
