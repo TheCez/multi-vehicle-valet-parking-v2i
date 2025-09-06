@@ -1099,7 +1099,7 @@ def game_loop(args):
                 # polygons,  decision_polygons = window.update_visualization(other_cars=other_cars)
                 # Use threading to call update_visualization
                 def update_visualization_thread(result_container):
-                    result_container.append(window.update_visualization(other_cars=other_cars))
+                    result_container.append(window.update_visualization(other_cars=None))
 
                 result_container = []
                 vis_thread = threading.Thread(target=update_visualization_thread, args=(result_container,))

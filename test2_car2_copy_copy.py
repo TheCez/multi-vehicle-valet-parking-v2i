@@ -1103,7 +1103,7 @@ def game_loop(args):
 
                 def run_update_visualization():
                     # You can pass other_cars if needed: window.update_visualization(other_cars=other_cars)
-                    result_container['polygons'], result_container['decision_polygons'] = window.update_visualization(other_cars=other_cars)
+                    result_container['polygons'], result_container['decision_polygons'] = window.update_visualization(other_cars=None)
 
                 vis_thread = threading.Thread(target=run_update_visualization)
                 vis_thread.start()

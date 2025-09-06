@@ -331,148 +331,204 @@ class Master:
 
                                 conflict_area = vis_grid[min_r:max_r+1, min_c:max_c+1]
 
-                                # Save photo of the conflict area before solving
-                                if self.collect_data:
-                                    abs_current_grid = np.abs(conflict_area)
-                                    colored_grid = self.oc.color_map[abs_current_grid]
-                                    if not os.path.exists("photos/conflict_area_before"):
-                                        os.makedirs("photos/conflict_area_before")
-                                    cv2.imwrite(f"photos/conflict_area_before/conflict_area_{self.time_step_data}.png", colored_grid)
-                                    # self.time_step_data += 1
 
-                                if self.decision_to_make:
-                                    
-                                    # if not os.path.exists("decision_grids"):
-                                    #     os.makedirs("decision_grids")
+                                def find_first_last_occurrence(conflict_area, value):
+                                    """
+                                    Finds the first and last occurrence of a given value in the conflict_area array.
+                                    Returns a tuple: (first_index, last_index), where each index is (row, col).
+                                    If value is not found, returns (None, None).
+                                    """
+                                    indices = np.argwhere(conflict_area == value)
+                                    if indices.size == 0:
+                                        return None, None
+                                    first_idx = tuple(indices[0])
+                                    last_idx = tuple(indices[-1])
+                                    # Check both first and last idx for which one doesn't have a neighbor with value -value
+                                    for idx in [first_idx, last_idx]:
+                                        r, c = idx
+                                        found_opposite = False
+                                        for dr, dc in [(-1,0),(1,0),(0,-1),(0,1)]:
+                                            nr, nc = r+dr, c+dc
+                                            if 0 <= nr < conflict_area.shape[0] and 0 <= nc < conflict_area.shape[1]:
+                                                if conflict_area[nr, nc] == -value:
+                                                    found_opposite = True
+                                                    break
+                                        if not found_opposite:
+                                            # This idx does not have a neighbor with value -value
+                                            if idx == first_idx:
+                                                return [idx[0], idx[1]+5]  # Adjust to original grid coordinates
+                                            else:
+                                                return [idx[0] , idx[1]-5]
 
-                                    no_of_cars = Master.no_of_subscribers - 1
+                                # Loop through subscribers_data to get car_value and subscriber_id
+                                for subscriber_id, data in self.subscribers_data.items():
+                                    if data['car_value'] == 4:
 
-                                    for subscriber_id, grid in decision_grids.items():
-                                        # np.save(f"decision_grids/decision_grids_{subscriber_id}.npy", grid)
-                                        grid = grid[min_r:max_r+1, min_c:max_c+1]
-                                        # np.save(f"decision_grids/decision_grids_{subscriber_id}.npy", grid)
-                                        indices = np.argwhere(grid == -2)
-                                        #print(len(indices))
-                                        if indices.size > 0:
-                                            first_idx = indices[0]
-                                            last_idx = indices[-1]
-                                            neighbors = []
-                                            for idx in [first_idx, last_idx]:
-                                                r, c = idx
-                                                for dr, dc in [(-1,0),(1,0),(0,-1),(0,1)]:
-                                                    nr, nc = r+dr, c+dc
-                                                    if 0 <= nr < grid.shape[0] and 0 <= nc < grid.shape[1]:
-                                                        neighbors.append((nr, nc))
-                                                    else:
-                                                        neighbors.append(None)
-                                            # Check which neighbor has value 2
-                                            #print(neighbors)
-                                            direction = None
-                                            for idx, neighbor in enumerate(neighbors):
-                                                if neighbor is not None:
-                                                    nr, nc = neighbor
-                                                    #print(nr, nc, grid[nr, nc])
-                                                    if grid[nr, nc] == 2:
-                                                        if (idx+1)%4 == 1:  # top neighbor
-                                                            #print("top")
-                                                            direction = 'R'
-                                                        elif (idx+1)%4 == 2:  # bottom neighbor
-                                                            #print("bottom")
-                                                            direction = 'L'
-                                                        elif (idx+1)%4 == 3:  # left neighbor
-                                                            #print("left")
-                                                            direction = 'U'
-                                                        elif (idx+1)%4 == 4:  # right neighbor
-                                                            #print("right")
-                                                            direction = 'D'
-                                                        else:
-                                                            print("No direction found")
-                                                        break
-                                            # neighbors now contains the up/down/left/right neighbors of first and last indices
-                                        decision_grid = self.decision_maker_helper(grid, direction=direction)
-                                        # np.save(f"decision_grids/decision_grids_{subscriber_id}_solved.npy", decision_grid)
-                                        check_fit = self.check_if_car_fit(decision_grid)
-                                        if check_fit:
-                                            car = ((Master.no_of_subscribers - 1) * 2) + 2
-                                            self.subscribers_data[subscriber_id] = {
-                                            'car_value': car,
-                                            'car_reach_value': car + 1,
-                                            'path_value': -car
-                                            }
-                                        else:
-                                            car = ((no_of_cars - 1) * 2) + 2
-                                            self.subscribers_data[subscriber_id] = {
-                                            'car_value': car,
-                                            'car_reach_value': car + 1,
-                                            'path_value': -car
-                                            }
-                                            no_of_cars -= 1                                            
-
-                                        # np.save(f"decision_grids/decision_grids_{subscriber_id}.npy", grid)
-
-                                        
-                                    print("Decisions saved for all subscribers.")
-                                    self.decision_to_make = False
-
-                                # self.oc.update_visualization2(current_grid=conflict_area)
-                                # self.conflict_solved = {subscriber_id: 'No Conflict' for subscriber_id in occupancy_grids.keys()}
-
-                                #conflict_area_temp = conflict_area.copy()
-                                
-                                conflict_area, new_path_point, waypoint_og = solve_conflict(conflict_area)
-
-                                # Save photo of the conflict area after solving
-                                if self.collect_data:
-                                    abs_current_grid = np.abs(conflict_area)
-                                    colored_grid = self.oc.color_map[abs_current_grid]
-                                    if not os.path.exists("photos/conflict_area_after"):
-                                        os.makedirs("photos/conflict_area_after")
-                                    cv2.imwrite(f"photos/conflict_area_after/conflict_area_{self.time_step_data}.png", colored_grid)
-                                    self.time_step_data += 1
-
-                                # if waypoint_og is not None:
-                                #     if not os.path.exists("training_data"):
-                                #         os.makedirs("training_data")
-                                #     np.save(f"training_data/visualization_{self.training_data_no}", visualization_grid_view)
-                                #     self.training_data_no += 1
-                                #     with open("training_data/waypoints.txt", "a") as f:
-                                #         f.write(f"{new_path_point[0] + min_r},{new_path_point[1] + min_c}\n")
-                                #         #f.write(f"{waypoint_og[0] + min_r},{waypoint_og[1] + min_c}\n")
-                                
-
-                                visualization_grid_view[waypoint_og[0] + min_r, waypoint_og[1] + min_c] = 7
-           
-
-                                # self.conflict_solved = {}
-                                # sub_id = None
-                                # print('New path point:', new_path_point)
-                                
-                                # Identify subscriber whose car_value == 4 (if any)
-                                sub_with_4 = next(
-                                    (sid for sid, sd in self.subscribers_data.items()
-                                    if sd['car_value'] == 4),
-                                    None
-                                )
-                                # if new_path_point is not None:
-                                #     if np.any((conflict_area == 4)):
-                                #         for sub_id, sub_data in self.subscribers_data.items():
-                                #             if sub_data['car_value'] == 4:
-                                #                 break
-                                # print('sub_with_4:', sub_id)
-                                
-                                for sid in occupancy_grids:
-                                    if sid == sub_with_4:
-                                        conflict_area[conflict_area == 4] = 0
-                                        self.conflict_solved[sid] = {
-                                            'conflict_area': conflict_area,
-                                            'new_path_point': new_path_point,
+                                        temp_area = conflict_area.copy()
+                                        temp_area[temp_area == 2] = 1
+                                        temp_area[temp_area != 1] = 0
+                                        self.conflict_solved[subscriber_id] = {
+                                            'conflict_area': temp_area,
+                                            'new_path_point': find_first_last_occurrence(conflict_area, -4),
                                             'conflict_area_bounds': {
                                                 'min_row': min_r, 'max_row': max_r,
                                                 'min_col': min_c, 'max_col': max_c
                                             }
                                         }
                                     else:
-                                        self.conflict_solved[sid] = 'No Conflict'
+                                        temp_area = conflict_area.copy()
+                                        temp_area[temp_area == 4] = 1
+                                        temp_area[temp_area != 1] = 0
+                                        self.conflict_solved[subscriber_id] = {
+                                            'conflict_area': temp_area,
+                                            'new_path_point': find_first_last_occurrence(conflict_area, -2),
+                                            'conflict_area_bounds': {
+                                                'min_row': min_r, 'max_row': max_r,
+                                                'min_col': min_c, 'max_col': max_c
+                                            }
+                                        }
+                                    
+
+                                # # Save photo of the conflict area before solving
+                                # if self.collect_data:
+                                #     abs_current_grid = np.abs(conflict_area)
+                                #     colored_grid = self.oc.color_map[abs_current_grid]
+                                #     if not os.path.exists("photos/conflict_area_before"):
+                                #         os.makedirs("photos/conflict_area_before")
+                                #     cv2.imwrite(f"photos/conflict_area_before/conflict_area_{self.time_step_data}.png", colored_grid)
+                                #     # self.time_step_data += 1
+
+                                # if self.decision_to_make:
+                                    
+                                #     # if not os.path.exists("decision_grids"):
+                                #     #     os.makedirs("decision_grids")
+
+                                #     no_of_cars = Master.no_of_subscribers - 1
+
+                                #     for subscriber_id, grid in decision_grids.items():
+                                #         # np.save(f"decision_grids/decision_grids_{subscriber_id}.npy", grid)
+                                #         grid = grid[min_r:max_r+1, min_c:max_c+1]
+                                #         indices = np.argwhere(grid == -2)
+                                #         #print(len(indices))
+                                #         if indices.size > 0:
+                                #             first_idx = indices[0]
+                                #             last_idx = indices[-1]
+                                #             neighbors = []
+                                #             for idx in [first_idx, last_idx]:
+                                #                 r, c = idx
+                                #                 for dr, dc in [(-1,0),(1,0),(0,-1),(0,1)]:
+                                #                     nr, nc = r+dr, c+dc
+                                #                     if 0 <= nr < grid.shape[0] and 0 <= nc < grid.shape[1]:
+                                #                         neighbors.append((nr, nc))
+                                #                     else:
+                                #                         neighbors.append(None)
+                                #             # Check which neighbor has value 2
+                                #             #print(neighbors)
+                                #             direction = None
+                                #             for idx, neighbor in enumerate(neighbors):
+                                #                 if neighbor is not None:
+                                #                     nr, nc = neighbor
+                                #                     #print(nr, nc, grid[nr, nc])
+                                #                     if grid[nr, nc] == 2:
+                                #                         if (idx+1)%4 == 1:  # top neighbor
+                                #                             #print("top")
+                                #                             direction = 'R'
+                                #                         elif (idx+1)%4 == 2:  # bottom neighbor
+                                #                             #print("bottom")
+                                #                             direction = 'L'
+                                #                         elif (idx+1)%4 == 3:  # left neighbor
+                                #                             #print("left")
+                                #                             direction = 'U'
+                                #                         elif (idx+1)%4 == 4:  # right neighbor
+                                #                             #print("right")
+                                #                             direction = 'D'
+                                #                         else:
+                                #                             print("No direction found")
+                                #                         break
+                                #             # neighbors now contains the up/down/left/right neighbors of first and last indices
+                                #         decision_grid = self.decision_maker_helper(grid, direction=direction)
+                                #         check_fit = self.check_if_car_fit(decision_grid)
+                                #         if check_fit:
+                                #             car = ((Master.no_of_subscribers - 1) * 2) + 2
+                                #             self.subscribers_data[subscriber_id] = {
+                                #             'car_value': car,
+                                #             'car_reach_value': car + 1,
+                                #             'path_value': -car
+                                #             }
+                                #         else:
+                                #             car = ((no_of_cars - 1) * 2) + 2
+                                #             self.subscribers_data[subscriber_id] = {
+                                #             'car_value': car,
+                                #             'car_reach_value': car + 1,
+                                #             'path_value': -car
+                                #             }
+                                #             no_of_cars -= 1                                            
+
+                                #         # np.save(f"decision_grids/decision_grids_{subscriber_id}.npy", grid)
+
+                                        
+                                #     print("Decisions saved for all subscribers.")
+                                #     self.decision_to_make = False
+
+                                # # self.oc.update_visualization2(current_grid=conflict_area)
+                                # # self.conflict_solved = {subscriber_id: 'No Conflict' for subscriber_id in occupancy_grids.keys()}
+
+                                # #conflict_area_temp = conflict_area.copy()
+                                
+                                # conflict_area, new_path_point, waypoint_og = solve_conflict(conflict_area)
+
+                                # # Save photo of the conflict area after solving
+                                # if self.collect_data:
+                                #     abs_current_grid = np.abs(conflict_area)
+                                #     colored_grid = self.oc.color_map[abs_current_grid]
+                                #     if not os.path.exists("photos/conflict_area_after"):
+                                #         os.makedirs("photos/conflict_area_after")
+                                #     cv2.imwrite(f"photos/conflict_area_after/conflict_area_{self.time_step_data}.png", colored_grid)
+                                #     self.time_step_data += 1
+
+                                # # if waypoint_og is not None:
+                                # #     if not os.path.exists("training_data"):
+                                # #         os.makedirs("training_data")
+                                # #     np.save(f"training_data/visualization_{self.training_data_no}", visualization_grid_view)
+                                # #     self.training_data_no += 1
+                                # #     with open("training_data/waypoints.txt", "a") as f:
+                                # #         f.write(f"{new_path_point[0] + min_r},{new_path_point[1] + min_c}\n")
+                                # #         #f.write(f"{waypoint_og[0] + min_r},{waypoint_og[1] + min_c}\n")
+                                
+
+                                # visualization_grid_view[waypoint_og[0] + min_r, waypoint_og[1] + min_c] = 7
+           
+
+                                # # self.conflict_solved = {}
+                                # # sub_id = None
+                                # # print('New path point:', new_path_point)
+                                
+                                # # Identify subscriber whose car_value == 4 (if any)
+                                # sub_with_4 = next(
+                                #     (sid for sid, sd in self.subscribers_data.items()
+                                #     if sd['car_value'] == 4),
+                                #     None
+                                # )
+                                # # if new_path_point is not None:
+                                # #     if np.any((conflict_area == 4)):
+                                # #         for sub_id, sub_data in self.subscribers_data.items():
+                                # #             if sub_data['car_value'] == 4:
+                                # #                 break
+                                # # print('sub_with_4:', sub_id)
+                                
+                                # for sid in occupancy_grids:
+                                #     if sid == sub_with_4:
+                                #         conflict_area[conflict_area == 4] = 0
+                                #         self.conflict_solved[sid] = {
+                                #             'conflict_area': conflict_area,
+                                #             'new_path_point': new_path_point,
+                                #             'conflict_area_bounds': {
+                                #                 'min_row': min_r, 'max_row': max_r,
+                                #                 'min_col': min_c, 'max_col': max_c
+                                #             }
+                                #         }
+                                #     else:
+                                #         self.conflict_solved[sid] = 'No Conflict'
 
                             else:
                                 self.conflict_solved = {subscriber_id: 'No Conflict' for subscriber_id in occupancy_grids.keys()}
