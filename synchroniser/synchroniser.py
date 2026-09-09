@@ -3,6 +3,7 @@ import zmq
 import time
 import uuid
 import carla
+import pickle
 import threading
 import numpy as np
 from occupation_grid.occupation_grid_with_grid_generator.occupation_grid_visualizer import OccupationGridVisualizer
@@ -36,8 +37,15 @@ class Master:
         self.pub_socket.setsockopt(zmq.XPUB_VERBOSER, 1)
         self.pub_socket.bind(f"tcp://127.0.0.1:{pub_port}")
         
-        # Sync socket for acknowledgments
-        self.sync_socket = self.context.socket(zmq.REP)
+        # Sync socket for acknowledgments.
+        # ROUTER (not REP) because multiple subscribers each run a multi-step
+        # handshake (CONFLICT_DETECTION -> grid -> SEND_SOLUTION) concurrently.
+        # A REP socket blindly assumes the next inbound message continues the
+        # previous client's conversation, which desyncs as soon as a second
+        # subscriber is talking at the same time. ROUTER tags every message
+        # with the sender's identity so each subscriber's handshake can be
+        # tracked and replied to independently, regardless of interleaving.
+        self.sync_socket = self.context.socket(zmq.ROUTER)
         self.sync_socket.bind(f"tcp://127.0.0.1:{sync_port}")
         
         # Poller for subscription events
@@ -170,175 +178,200 @@ class Master:
     #     print(f"Adjusted subscribers: {Master.no_of_subscribers}")
 
 
+    def _merge_occupancy_grids(self, occupancy_grids):
+        """Merge every subscriber's occupancy grid and detect conflicts.
+
+        `occupancy_grids` is a {subscriber_id: grid} mapping, one entry per
+        subscriber that submitted a grid this tick. Returns a
+        {subscriber_id: 'No Conflict' | conflict_area_ndarray} mapping - the
+        same dict content is sent back to every subscriber (each subscriber
+        looks up its own id in it), matching the original single-subscriber
+        protocol this was factored out of.
+        """
+        # Assign unique values for '3' in each grid (starting from 4 for the second grid)
+        for idx, (subscriber_id, grid) in enumerate(occupancy_grids.items()):
+            if idx == 0:
+                continue  # Skip the first grid
+            new_value = 3 + idx  # 4 for second, 5 for third, etc.
+            grid[grid == 3] = new_value
+
+        # Merge all received occupancy grids with conflict handling
+        first_grid = next(iter(occupancy_grids.values()))
+        grid_shape = first_grid.shape
+        merged_grid = np.empty(grid_shape, dtype=object)
+        visualization_grid = np.empty(grid_shape, dtype=first_grid.dtype)
+        temp_grid = np.empty(grid_shape, dtype=object)
+        temp_grid_visualization = np.empty(grid_shape, dtype=first_grid.dtype)
+        top_left = None
+        top_right = None
+        bottom_left = None
+        bottom_right = None
+
+        # Copy the first grid as the base
+        merged_grid[:] = first_grid
+        visualization_grid[:] = first_grid
+        temp_grid.fill(1)
+        temp_grid_visualization.fill(1)
+        conflict = False
+
+        # Merge the rest of the grids
+        for _, grid in list(occupancy_grids.items())[1:]:
+            for idx, value in np.ndenumerate(grid):
+                if merged_grid[idx] >= 2 or value >= 2:
+                    # Track the bounds of values > 3
+                    row, col = idx
+                    if top_left is None:
+                        top_left = (row, col)
+                        bottom_right = (row, col)
+                        top_right = (row, col)
+                        bottom_left = (row, col)
+                    else:
+                        # Update bounds
+                        if row < top_left[0] or col < top_left[1]:
+                            top_left = (min(row, top_left[0]), min(col, top_left[1]))
+                        if row < bottom_left[0] or col > bottom_left[1]:
+                            bottom_left = (min(row, bottom_left[0]), max(col, bottom_left[1]))
+                        if row > top_right[0] or col < top_right[1]:
+                            top_right = (max(row, top_right[0]), min(col, top_right[1]))
+                        if row > bottom_right[0] or col > bottom_right[1]:
+                            bottom_right = (max(row, bottom_right[0]), max(col, bottom_right[1]))
+                    # If both are >= 3, add both to the list
+                    if merged_grid[idx] >= 2 and value >= 2:
+                        temp_grid[idx] = [merged_grid[idx], value]
+                        conflict = True
+                    # If only merged_grid[idx] is >= 3, add that
+                    elif merged_grid[idx] >= 2:
+                        temp_grid[idx] = [merged_grid[idx]]
+                    # If only value is >= 3, add that
+                    elif value >= 2:
+                        temp_grid[idx] = [value]
+                    temp_grid_visualization[idx] = min(visualization_grid[idx], value)
+                if merged_grid[idx] != value:
+                    merged_grid[idx] = [merged_grid[idx], value]
+                    visualization_grid[idx] = max(visualization_grid[idx], value)
+                # else: values are the same, do nothing
+
+        # If there was a conflict
+        if conflict:
+            print("Conflict detected!")
+            # Ensure all corner points are set
+            if None not in (top_left, top_right, bottom_left, bottom_right):
+                # Find min/max rows and cols to define the bounding box
+                min_row = min(top_left[0], bottom_left[0])
+                max_row = max(top_right[0], bottom_right[0])
+                min_col = min(top_left[1], top_right[1])
+                max_col = max(bottom_left[1], bottom_right[1])
+
+                # Extract the subgrid containing all four points
+                conflict_area = temp_grid_visualization[min_row:max_row+1, min_col:max_col+1]
+                print(f"Extracted conflict area shape: {conflict_area.shape}")
+                np.save("output_occupancy_grids/conflict_area.npy", conflict_area)
+            else:
+                print("Could not determine all four corners for conflict area extraction.")
+            # Store the conflict area for each subscriber
+            conflict_solved = {subscriber_id: conflict_area for subscriber_id in occupancy_grids.keys()}
+        else:
+            print("No conflicts detected.")
+            conflict_solved = {subscriber_id: 'No Conflict' for subscriber_id in occupancy_grids.keys()}
+
+        if len(occupancy_grids) == 1:
+            print("Only one occupancy grid received, no conflicts to resolve.")
+            self.oc.update_visualization2(current_grid=visualization_grid)
+        else:
+            self.oc.update_visualization2(current_grid=temp_grid_visualization)
+
+        print("Merged grid saved to output_occupancy_grids/merged_grid.npy")
+        print("All conflicts resolved! Merging occupancy grids...")
+        return conflict_solved
+
     def verify_acknowledgment(self):
-        self.waiting_for_ack = Master.no_of_subscribers
-        self.conflict_counter = Master.no_of_subscribers
-        self.solution_counter = Master.no_of_subscribers
+        """Wait for every current subscriber to ACK this tick and, if it
+        wants conflict detection, to complete that handshake too.
+
+        The sync socket is a ROUTER, so every inbound message is tagged with
+        the sender's identity frame. That identity - not message order - is
+        what tells us which step of which subscriber's handshake we're in.
+        This lets N subscribers hold independent, interleaved conversations
+        with the master at once instead of one shared conversation that
+        breaks the moment a second subscriber talks mid-handshake.
+        """
+        waiting_for_ack = Master.no_of_subscribers
+        conflict_counter = Master.no_of_subscribers
         timeout = 10.0
         start_time = time.time()
         poller = zmq.Poller()
         poller.register(self.sync_socket, zmq.POLLIN)
-        # Create a list to hold occupancy grids, one for each subscriber
-        occupancy_grids = {}
 
-        print(f"Waiting for {self.waiting_for_ack} acks or conflicts...")
+        # Per-identity handshake state: 'awaiting_grid' once we've told a
+        # subscriber to send its grid, 'awaiting_solution' once we've stored
+        # it and are waiting for that subscriber to ask for the resolution.
+        client_state = {}
+        occupancy_grids = {}          # identity -> (subscriber_id, grid)
+        conflict_solved = None        # set once every grid this tick is in
+        pending_solution_requests = set()  # identities blocked on conflict_solved
 
-        while (self.waiting_for_ack > 0 or self.conflict_counter > 0) and (time.time() - start_time) < timeout:
+        print(f"Waiting for {waiting_for_ack} acks or conflicts...")
+
+        while (waiting_for_ack > 0 or conflict_counter > 0 or pending_solution_requests) \
+                and (time.time() - start_time) < timeout:
             try:
                 events = dict(poller.poll(500))
-                if self.sync_socket in events:
-                    msg = self.sync_socket.recv()
-                    print(f"Received message: {msg}")
+                if self.sync_socket not in events:
+                    continue
 
-                    if msg == b"ACK":
-                        print("Valid ACK received")
-                        self.sync_socket.send(b"ACK_RECEIVED")
-                        self.waiting_for_ack -= 1
+                identity, _empty, payload = self.sync_socket.recv_multipart()
 
-                    elif msg == b"CONFLICT_DETECTION":
-                        print('Conflict Checking...')
-                        self.conflict_counter -= 1
-                        self.sync_socket.send(b"SEND_GRID")  # Respond immediately
+                def reply(data):
+                    self.sync_socket.send_multipart([identity, b"", data])
 
-                        # Now receive the grid from this subscriber
-                        subscriber_id, grid = self.sync_socket.recv_pyobj()
+                if client_state.get(identity) == 'awaiting_grid':
+                    subscriber_id, grid = pickle.loads(payload)
+                    occupancy_grids[identity] = (subscriber_id, grid)
+                    print(f"Received occupancy grid from {subscriber_id} with shape {grid.shape}")
+                    np.save(f"output_occupancy_grids/occupancy_grid_{subscriber_id}.npy", grid)
+                    reply(b"GRID_RECEIVED")
+                    client_state[identity] = 'awaiting_solution'
+                    conflict_counter -= 1
+                    print(f"Conflict Count is {conflict_counter}")
 
-                        occupancy_grids[subscriber_id] = grid  # Store the grid with subscriber ID as key
-                        # Find the first available slot (None) and store the grid there
-                        # for idx in range(len(occupancy_grids)):
-                        #     if occupancy_grids[idx] is None:
-                        #         occupancy_grids[idx] = grid
-                        #         break
-                        print(f"Received occupancy grid from {subscriber_id} with shape {grid.shape}")
-                        np.save(f"output_occupancy_grids/occupancy_grid_{subscriber_id}.npy", grid)
-                        self.sync_socket.send(b"GRID_RECEIVED")  # Acknowledge grid receipt
-                        print(f"Conflict Count is {self.conflict_counter}")
+                    if conflict_counter == 0:
+                        grids_by_subscriber_id = {
+                            sub_id: g for sub_id, g in occupancy_grids.values()
+                        }
+                        conflict_solved = self._merge_occupancy_grids(grids_by_subscriber_id)
+                        # Any subscriber whose SEND_SOLUTION already arrived
+                        # while we were still waiting on other grids can be
+                        # answered now.
+                        for pending_identity in list(pending_solution_requests):
+                            reply_bytes = pickle.dumps(conflict_solved)
+                            self.sync_socket.send_multipart([pending_identity, b"", reply_bytes])
+                            client_state[pending_identity] = 'idle'
+                        pending_solution_requests.clear()
+                    continue
 
-                        if self.conflict_counter == 0:
-                            # Assign unique values for '3' in each grid (starting from 4 for the second grid)
-                            for idx, (subscriber_id, grid) in enumerate(occupancy_grids.items()):
-                                if idx == 0:
-                                    continue  # Skip the first grid
-                                new_value = 3 + idx  # 4 for second, 5 for third, etc.
-                                grid[grid == 3] = new_value
-                            
-                            # Merge all received occupancy grids with conflict handling
-                            first_grid = next(iter(occupancy_grids.values()))
-                            grid_shape = first_grid.shape
-                            merged_grid = np.empty(grid_shape, dtype= object)
-                            visualization_grid = np.empty(grid_shape, dtype=first_grid.dtype)
-                            temp_grid = np.empty(grid_shape, dtype=object)
-                            temp_grid_visualization = np.empty(grid_shape, dtype=first_grid.dtype)
-                            top_left = None
-                            top_right = None
-                            bottom_left = None
-                            bottom_right = None
-                            
+                print(f"Received message: {payload}")
 
+                if payload == b"ACK":
+                    print("Valid ACK received")
+                    reply(b"ACK_RECEIVED")
+                    waiting_for_ack -= 1
 
-                            # Copy the first grid as the base
-                            merged_grid[:] = first_grid
-                            visualization_grid[:] = first_grid
-                            temp_grid.fill(1)
-                            temp_grid_visualization.fill(1)
-                            conflict = False
+                elif payload == b"CONFLICT_DETECTION":
+                    print('Conflict Checking...')
+                    client_state[identity] = 'awaiting_grid'
+                    reply(b"SEND_GRID")
 
-                            # Merge the rest of the grids
-                            for _, grid in list(occupancy_grids.items())[1:]:
-                                for idx, value in np.ndenumerate(grid):
-                                    #print('Here')
-                                    #print(idx, value)
-                                    if merged_grid[idx]>= 2 or value >= 2:
-                                        # Track the bounds of values > 3
-                                        #if value > 3 or merged_grid[idx] > 3:
-                                        row, col = idx
-                                        if top_left is None:
-                                            top_left = (row, col)
-                                            bottom_right = (row, col)
-                                            top_right = (row, col)
-                                            bottom_left = (row, col)
-                                        else:
-                                            # Update bounds
-                                            if row < top_left[0] or col < top_left[1]:
-                                                top_left = (min(row, top_left[0]), min(col, top_left[1]))
-                                            if row < bottom_left[0] or col > bottom_left[1]:
-                                                bottom_left = (min(row, bottom_left[0]), max(col, bottom_left[1]))
-                                            if row > top_right[0] or col < top_right[1]:
-                                                top_right = (max(row, top_right[0]), min(col, top_right[1]))
-                                            if row > bottom_right[0] or col > bottom_right[1]:
-                                                bottom_right = (max(row, bottom_right[0]), max(col, bottom_right[1]))
-                                        #print('Here!!!!')
-                                        # If both are >= 3, add both to the list
-                                        if merged_grid[idx] >= 2 and value >= 2:
-                                            temp_grid[idx] = [merged_grid[idx], value]
-                                            conflict = True
-                                        # If only merged_grid[idx] is >= 3, add that
-                                        elif merged_grid[idx] >= 2:
-                                            temp_grid[idx] = [merged_grid[idx]]
-                                        # If only value is >= 3, add that
-                                        elif value >= 2:
-                                            temp_grid[idx] = [value]
-                                        temp_grid_visualization[idx] = min(visualization_grid[idx], value)
-                                    if merged_grid[idx] != value:
-                                        merged_grid[idx] = [merged_grid[idx], value]
+                elif payload == b"SEND_SOLUTION":
+                    if conflict_solved is not None and identity in occupancy_grids:
+                        reply(pickle.dumps(conflict_solved))
+                        client_state[identity] = 'idle'
+                    else:
+                        # Other subscribers haven't submitted their grid yet;
+                        # answer this once conflict_solved is ready above.
+                        pending_solution_requests.add(identity)
 
-                                        visualization_grid[idx] = max(visualization_grid[idx], value)
-                                    # else: values are the same, do nothing
-                            # If there was a conflict
-                            if conflict:
-                                print("Conflict detected!")
-                                # Ensure all corner points are set
-                                if None not in (top_left, top_right, bottom_left, bottom_right):
-                                    # Find min/max rows and cols to define the bounding box
-                                    min_row = min(top_left[0], bottom_left[0])
-                                    max_row = max(top_right[0], bottom_right[0])
-                                    min_col = min(top_left[1], top_right[1])
-                                    max_col = max(bottom_left[1], bottom_right[1])
-
-                                    # Extract the subgrid containing all four points
-                                    conflict_area = temp_grid_visualization[min_row:max_row+1, min_col:max_col+1]
-                                    print(f"Extracted conflict area shape: {conflict_area.shape}")
-                                    np.save("output_occupancy_grids/conflict_area.npy", conflict_area)
-                                else:
-                                    print("Could not determine all four corners for conflict area extraction.")
-                                # Store the conflict area for each subscriber
-                                conflict_solved = {}
-                                for subscriber_id in occupancy_grids.keys():
-                                    conflict_solved[subscriber_id] = conflict_area
-                                
-                            else:
-                                print("No conflicts detected.")
-                                conflict_solved = {subscriber_id: 'No Conflict' for subscriber_id in occupancy_grids.keys()}
-                                # Save the merged grid to a file
-                            
-
-                            # Send the conflict area (or 'No Conflict') back to each subscriber, one at a time
-                            for subscriber_id in occupancy_grids.keys():
-                                status = self.sync_socket.recv()  # Wait for the subscriber to be ready
-                                if status == b"SEND_SOLUTION":
-                                    # Only send to the corresponding subscriber
-                                    self.sync_socket.send_pyobj(conflict_solved)
-                                    # # Wait for acknowledgment from this subscriber before proceeding
-                                    #     reply = self.sync_socket.recv()
-                                    #     if reply == b"SOLUTION_RECEIVED":
-                                    #         print(f"Received reply from: Solution acknowledged")
-                                    #     else:
-                                    #         print(f"Unexpected reply: {reply}")
-                                    # else:
-                                    #     print(f"No acknowledgment received")
-                            
-                            if len(occupancy_grids) == 1:
-                                print("Only one occupancy grid received, no conflicts to resolve.")
-                                self.oc.update_visualization2(current_grid=visualization_grid)
-                            else:
-                                self.oc.update_visualization2(current_grid=temp_grid_visualization)
-                            #self.oc.update_visualization2(current_grid = visualization_grid)
-
-                            #np.save("output_occupancy_grids/merged_grid.npy", merged_grid)
-                            print("Merged grid saved to output_occupancy_grids/merged_grid.npy")
-                            print("All conflicts resolved! Merging occupancy grids...")
-                            
-                    
+                else:
+                    print(f"Unexpected message, ignoring: {payload}")
 
             except zmq.ZMQError as e:
                 if e.errno != zmq.EAGAIN:

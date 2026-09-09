@@ -12,8 +12,12 @@ if ! command -v gnome-terminal >/dev/null 2>&1; then
     exit 1
 fi
 
-PYTHON_BIN="${PYTHON_BIN:-python3}"
-if ! "$PYTHON_BIN" - <<'PY'
+PYTHON_BIN="${PYTHON_BIN:-$ROOT_DIR/.venv/bin/python}"
+if [ ! -x "$PYTHON_BIN" ]; then
+    echo "Project interpreter not found: $PYTHON_BIN. Run agents/setup_private_carla.sh first." >&2
+    exit 1
+fi
+if ! PYTHONPATH="$ROOT_DIR${PYTHONPATH:+:$PYTHONPATH}" "$PYTHON_BIN" - <<'PY'
 import carla
 client = carla.Client("127.0.0.1", 2000)
 client.set_timeout(5.0)
@@ -26,7 +30,7 @@ fi
 
 echo "Starting synchronizer before vehicle controllers..."
 gnome-terminal --title="Valet parking synchronizer" -- bash -lc \
-    "$PYTHON_BIN synchroniser/synchroniser.py; exec bash"
+    "cd '$ROOT_DIR' && PYTHONPATH='$ROOT_DIR' '$PYTHON_BIN' synchroniser/synchroniser.py; exec bash"
 
 # Give the master time to bind the ZeroMQ endpoints before Subscribers connect.
 sleep 2

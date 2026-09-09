@@ -801,7 +801,7 @@ def game_loop(args):
         client = carla.Client(args.host, args.port)
         client.set_timeout(60.0)
 
-        traffic_manager = client.get_trafficmanager()
+        traffic_manager = client.get_trafficmanager(args.tm_port)
         sim_world = client.get_world()
 
         occupationgrid = OccupationGrid(sim_world, cell_size=0.5)
@@ -868,7 +868,7 @@ def game_loop(args):
 
         # Initialize Qt in the main thread
         app = QApplication([])
-        test = CommonRoadSceneGenerator(world.player)
+        test = CommonRoadSceneGenerator(world)
         window = CommonRoadVisualizer(test.base_config, test.scenario, test.planning_problem, test.world, world.player)
         window.setGeometry(100, 100, 800, 600)
         window.show()
@@ -928,9 +928,9 @@ def game_loop(args):
                     break
                 #test.window.update_visualization()
                         # Update visualization
-                polygons = window.update_visualization()
+                polygons, decision_polygons = window.update_visualization()
 
-                reach_occupancygrid = occupationgrid.generate_occupation_grid(world.player, polygons)
+                reach_occupancygrid, _ = occupationgrid.generate_occupation_grid(world.player, polygons)
 
                 final_occupancy_grid = subscriber.send_conflict(reach_occupancygrid)
 
@@ -1006,6 +1006,12 @@ def main():
         default=2000,
         type=int,
         help='TCP port to listen to (default: 2000)')
+    argparser.add_argument(
+        '--tm-port',
+        metavar='P',
+        default=8002,
+        type=int,
+        help='CARLA Traffic Manager port (default: 8002)')
     argparser.add_argument(
         '--res',
         metavar='WIDTHxHEIGHT',
