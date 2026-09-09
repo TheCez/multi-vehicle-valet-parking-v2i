@@ -1,0 +1,15 @@
+--- commonroad-scenario-designer-0.8.4/original/road.py
++++ commonroad-scenario-designer-0.8.4/patched/road.py
+@@ -6,7 +6,11 @@
+ import numpy as np
+ from commonroad.geometry.polyline_util import compute_polyline_lengths  # type: ignore
+ from commonroad.scenario.lanelet import Lanelet  # type: ignore
+-from commonroad_dc.geometry.util import (
++# from commonroad_dc.geometry.util import (
++#     compute_curvature_from_polyline,
++#     compute_pathlength_from_polyline,
++# )
++from commonroad_clcs.util import (
+     compute_curvature_from_polyline,
+     compute_pathlength_from_polyline,
+ )

@@ -14,6 +14,113 @@ import argparse
 import csv
 import cv2
 
+# def record_carla_spectator_view():
+#     # Connect to CARLA
+#     client = carla.Client('localhost', 2000)
+#     client.set_timeout(10.0)
+#     world = client.get_world()
+    
+#     # # Set your spectator position
+#     # spectator = world.get_spectator()
+#     # spectator.set_transform(
+#     #     carla.Transform(
+#     #         carla.Location(x=10.667169, y=40.477634, z=43.545383),
+#     #         carla.Rotation(pitch=-88.994576, yaw=-90.239044, roll=-0.006716)
+#     #     )
+#     # )
+    
+#     # Create camera at spectator position
+#     blueprint_library = world.get_blueprint_library()
+#     camera_bp = blueprint_library.find('sensor.camera.rgb')
+#     camera_bp.set_attribute('image_size_x', '1920')
+#     camera_bp.set_attribute('image_size_y', '1080')
+#     camera_bp.set_attribute('fov', '127')
+#     camera_bp.set_attribute('enable_postprocess_effects', 'True') 
+#     # Spawn camera
+#     camera_transform = carla.Transform(
+#         carla.Location(x=10.667169, y=43.477634, z=43.545383),
+#         carla.Rotation(pitch=-88.994576, yaw=-90.239044, roll=-0.006716)
+#     )
+#     camera = world.spawn_actor(camera_bp, camera_transform)
+    
+#     # Video recording setup
+#     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+#     video_writer = cv2.VideoWriter('spectator_view.mp4', fourcc, 30.0, (1920, 1080))
+    
+#     # Image storage
+#     latest_image = None
+    
+#     def save_image(image):
+#         nonlocal latest_image
+#         array = np.frombuffer(image.raw_data, dtype=np.uint8)
+#         array = np.reshape(array, (image.height, image.width, 4))
+#         array = array[:, :, :3]  # Remove alpha
+#         # array = array[:, :, ::-1]  # RGB to BGR
+#         latest_image = array
+    
+#     camera.listen(save_image)
+    
+#     try:
+#         print("Recording started. Press Ctrl+C to stop.")
+#         frame_count = 0
+        
+#         while True:
+#             world.tick()
+            
+#             if latest_image is not None:
+#                 video_writer.write(latest_image)
+#                 cv2.imshow('Recording', latest_image)
+#                 frame_count += 1
+                
+#                 if frame_count % 30 == 0:  # Print every second
+#                     print(f"Recorded {frame_count} frames")
+            
+#             if cv2.waitKey(1) & 0xFF == ord('q'):
+#                 break
+                
+#             time.sleep(1/30)  # 30 FPS
+            
+#     except KeyboardInterrupt:
+#         print("Recording stopped by user")
+    
+#     finally:
+#         camera.stop()
+#         camera.destroy()
+#         video_writer.release()
+#         cv2.destroyAllWindows()
+#         print("Cleanup completed")
+
+def setup_recorder(world, transform, output_path='sync_capture.mp4'):
+    # 1. Create post-processed camera blueprint
+    bp = world.get_blueprint_library().find('sensor.camera.rgb')
+    bp.set_attribute('image_size_x', '1920')
+    bp.set_attribute('image_size_y', '1080')
+    bp.set_attribute('fov', '127')
+    bp.set_attribute('enable_postprocess_effects', 'True')
+    # bp.set_attribute('exposure_mode', 'manual')
+    # bp.set_attribute('exposure_compensation', '0.5')
+    # bp.set_attribute('gamma', '2.2')
+    
+    # 2. Spawn camera at spectator transform
+    camera = world.spawn_actor(bp, transform)
+    
+    # 3. Prepare OpenCV writer
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    writer = cv2.VideoWriter(output_path, fourcc, 20.0, (1920, 1080))
+    
+    # 4. Image queue and listener
+    img_queue = queue.Queue(maxsize=1)
+    def on_image(image):
+        arr = np.frombuffer(image.raw_data, dtype=np.uint8)
+        arr = arr.reshape((image.height, image.width, 4))[:, :, :3]
+        # Overwrite old frame if queue full
+        if img_queue.full():
+            _ = img_queue.get_nowait()
+        img_queue.put(arr)
+    
+    camera.listen(on_image)
+    return camera, writer, img_queue
+
 
 class Master:
     no_of_subscribers = 0
@@ -723,10 +830,29 @@ if __name__ == "__main__":
     settings.fixed_delta_seconds = 0.05
     world.apply_settings(settings)
 
+    # Spectator transform (same as your visualization)
+    spec = world.get_spectator()
+    spec_transform = spec.get_transform()
+    
+    # Set up recorder
+    camera, writer, img_queue = setup_recorder(world, spec_transform, 'simulation_capture.mp4')
+
     try:
         while True:
             world.tick()
             master.broadcast_tick()
+            # 5. Immediately after tick, grab and write frame
+            try:
+                frame = img_queue.get(timeout=1.0)
+                writer.write(frame)
+                if args.visualize:
+                    cv2.imshow('Recording', frame)
+                    if cv2.waitKey(1) & 0xFF == ord('q'):
+                        break
+            except queue.Empty:
+                # No image this tick
+                pass
+
             if args.visualize:
                 try:
                     while not master.visualization_queue.empty():
@@ -738,4 +864,15 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         pass
     finally:
+        # Clean up recorder
+        camera.stop()
+        camera.destroy()
+        writer.release()
+        cv2.destroyAllWindows()
+        
+        # Restore async mode
+        settings = world.get_settings()
+        settings.synchronous_mode = False
+        settings.fixed_delta_seconds = 0.0
+        world.apply_settings(settings)
         master.close()

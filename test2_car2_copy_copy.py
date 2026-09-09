@@ -172,7 +172,7 @@ class World(object):
         blueprint.set_attribute('role_name', 'hero')
         if blueprint.has_attribute('color'):
             color = random.choice(blueprint.get_attribute('color').recommended_values)
-            blueprint.set_attribute('color', color)
+            blueprint.set_attribute('color', '0,0,0')
 
         # Spawn the player.
         if self.player is not None:

@@ -15,6 +15,39 @@ import csv
 import cv2
 
 
+
+def setup_recorder(world, transform, output_path='sync_capture.mp4'):
+    # 1. Create post-processed camera blueprint
+    bp = world.get_blueprint_library().find('sensor.camera.rgb')
+    bp.set_attribute('image_size_x', '1920')
+    bp.set_attribute('image_size_y', '1080')
+    bp.set_attribute('fov', '127')
+    bp.set_attribute('enable_postprocess_effects', 'True')
+    # bp.set_attribute('exposure_mode', 'manual')
+    # bp.set_attribute('exposure_compensation', '0.5')
+    # bp.set_attribute('gamma', '2.2')
+    
+    # 2. Spawn camera at spectator transform
+    camera = world.spawn_actor(bp, transform)
+    
+    # 3. Prepare OpenCV writer
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    writer = cv2.VideoWriter(output_path, fourcc, 20.0, (1920, 1080))
+    
+    # 4. Image queue and listener
+    img_queue = queue.Queue(maxsize=1)
+    def on_image(image):
+        arr = np.frombuffer(image.raw_data, dtype=np.uint8)
+        arr = arr.reshape((image.height, image.width, 4))[:, :, :3]
+        # Overwrite old frame if queue full
+        if img_queue.full():
+            _ = img_queue.get_nowait()
+        img_queue.put(arr)
+    
+    camera.listen(on_image)
+    return camera, writer, img_queue
+
+
 class Master:
     no_of_subscribers = 0
     pending_disconnects = 0
@@ -762,6 +795,41 @@ class Subscriber:
             pass
 
 
+# # Optimized main execution
+# if __name__ == "__main__":
+#     parser = argparse.ArgumentParser()
+#     parser.add_argument('--visualize', action='store_true', help='Enable visualization')
+#     parser.add_argument('--collect_data', action='store_true', help='Enable data collection')
+#     args = parser.parse_args()
+#     master = Master(visualize=args.visualize, collect_data=args.collect_data)
+
+#     client = carla.Client('localhost', 2000)
+#     client.set_timeout(5.0)  # Reduced timeout
+#     world = client.get_world()
+
+#     settings = world.get_settings()
+#     settings.synchronous_mode = True
+#     settings.fixed_delta_seconds = 0.05
+#     world.apply_settings(settings)
+
+#     try:
+#         while True:
+#             world.tick()
+#             master.broadcast_tick()
+#             if args.visualize:
+#                 try:
+#                     while not master.visualization_queue.empty():
+#                         cmd = master.visualization_queue.get_nowait()
+#                         if cmd == "stop":
+#                             master.oc.stop_visualization()
+#                 except Exception:
+#                     pass
+#     except KeyboardInterrupt:
+#         pass
+#     finally:
+#         master.close()
+
+
 # Optimized main execution
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -779,10 +847,29 @@ if __name__ == "__main__":
     settings.fixed_delta_seconds = 0.05
     world.apply_settings(settings)
 
+    # Spectator transform (same as your visualization)
+    spec = world.get_spectator()
+    spec_transform = spec.get_transform()
+    
+    # Set up recorder
+    camera, writer, img_queue = setup_recorder(world, spec_transform, 'simulation_capture_failure.mp4')
+
     try:
         while True:
             world.tick()
             master.broadcast_tick()
+            # 5. Immediately after tick, grab and write frame
+            try:
+                frame = img_queue.get(timeout=1.0)
+                writer.write(frame)
+                if args.visualize:
+                    cv2.imshow('Recording', frame)
+                    if cv2.waitKey(1) & 0xFF == ord('q'):
+                        break
+            except queue.Empty:
+                # No image this tick
+                pass
+
             if args.visualize:
                 try:
                     while not master.visualization_queue.empty():
@@ -794,4 +881,16 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         pass
     finally:
+        # Clean up recorder
+        camera.stop()
+        camera.destroy()
+        writer.release()
+        cv2.destroyAllWindows()
+        
+        # Restore async mode
+        settings = world.get_settings()
+        settings.synchronous_mode = False
+        settings.fixed_delta_seconds = 0.0
+        world.apply_settings(settings)
         master.close()
+
