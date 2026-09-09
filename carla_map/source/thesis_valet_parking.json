@@ -1,0 +1,11 @@
+{
+  "maps": [
+    {
+      "name": "Town_Valet_Parking_final",
+      "source": "./Town_Valet_Parking_final/Town_Valet_Parking_final.fbx",
+      "use_carla_materials": false,
+      "xodr": "./Town_Valet_Parking_final/Town_Valet_Parking_final.xodr"
+    }
+  ],
+  "props": []
+}

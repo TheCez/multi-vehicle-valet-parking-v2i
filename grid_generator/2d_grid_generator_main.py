@@ -52,7 +52,7 @@ def create_2d_grid(world, grid_size=500, cell_size=1):
     walls = world.get_level_bbs(carla.CityObjectLabel.Other)
     roadlines = world.get_level_bbs(carla.CityObjectLabel.RoadLines)
 
-    print(len(walls))
+    #print(len(walls))
     # print(len(parking_spots))
 
     parking_spots = segment_parking_lines(roadlines[5])
@@ -62,7 +62,7 @@ def create_2d_grid(world, grid_size=500, cell_size=1):
     # level_bbs =  walls #+ parking_spots
     # level_bbs = [roadlines[5]] + parking_spots
     level_bbs = walls #+ parking_spots
-    print(len(level_bbs))
+    #print(len(level_bbs))
     # Draw bounding boxes on the grid
     for bb in level_bbs:
         # Get the center location and extent of the bounding box
@@ -121,9 +121,13 @@ def get_bounding_box_corners(center, extent, rotation):
 
 client = carla.Client('localhost', 2000)
 world = client.get_world()
-grid = create_2d_grid(world)
+grid = create_2d_grid(world, grid_size=500, cell_size=0.5)
 np.save('grid.npy', grid)
 cv2.imwrite('grid.png', grid)
+img = cv2.imread('grid.png')
+cv2.imshow('Grid', img)
+cv2.waitKey(0)
+cv2.destroyAllWindows()
 
 # def main():
 #     try:

@@ -5,8 +5,48 @@ import random
 import time
 import subprocess
 import threading
+import xml.etree.ElementTree as ET
+import math
 
-def create_2d_obstacle_grid(world, grid_size=500, cell_size=1):
+
+# Dummy bounding box class
+class SimpleBoundingBox:
+    def __init__(self, location, extent, rotation):
+        self.location = location  # carla.Location assumed local
+        self.extent = extent      # carla.Vector3D half sizes
+        self.rotation = rotation  # carla.Rotation local rotation (likely zero)
+
+def get_parking_space_transform(carla_map, s, t, hdg, road_id=12):
+    waypoints = carla_map.generate_waypoints(distance=0.25)
+
+    # If road_id is known, filter waypoints by it for more robust selection
+    if road_id is not None:
+        waypoints = [wp for wp in waypoints if wp.road_id == road_id]
+        if not waypoints:
+            waypoints = carla_map.generate_waypoints(distance=1)  # fallback
+
+    # Heuristic: order waypoints by progression along their road (in OpenDrive this is s), so for each sequence of road_id, sort by projection along heading.
+    # In practice, we select the waypoint whose projection along its tangent vector (lane direction) is closest to s.
+
+    # Try to approximately "align" the s coordinate to the waypoint sequence for each road
+    closest_wp = min(
+        waypoints, 
+        key=lambda wp: abs((wp.road_id if road_id else 0) - (road_id if road_id is not None else 0)) + abs(wp.transform.location.x - s)
+    )
+
+    yaw = math.radians(closest_wp.transform.rotation.yaw)
+    lateral_offset = carla.Vector3D(-math.sin(yaw), math.cos(yaw), 0)
+    # Apply t as lateral offset from the centerline
+    global_location = closest_wp.transform.location + lateral_offset * t
+
+    # hdg in OpenDrive is relative to the road's centerline direction, so add it
+    parking_yaw = closest_wp.transform.rotation.yaw + math.degrees(hdg)
+    parking_rotation = carla.Rotation(pitch=0, yaw=parking_yaw, roll=0)
+
+    return carla.Transform(global_location, parking_rotation)
+
+
+def create_2d_obstacle_grid(world, grid_size=500, cell_size=0.5):
     # Create an empty grid
     grid = np.zeros((grid_size, grid_size), dtype=np.uint8)
     
@@ -19,6 +59,57 @@ def create_2d_obstacle_grid(world, grid_size=500, cell_size=1):
     # Mark obstacles on the grid
     for bb in walls:
         mark_bounding_box(grid, bb, center, cell_size, value=1)
+
+    # Assuming you have a CARLA client and world object already:
+    carla_map = world.get_map()
+
+    # Get the OpenDrive XML as a string
+    open_drive_xml = carla_map.to_opendrive()
+
+    root = ET.fromstring(open_drive_xml)
+
+    # #root = tree.getroot()
+
+    # for obj in root.findall(".//object[@name='Stencil_Parking3']"):
+    #     s = float(obj.attrib['s'])
+    #     t = float(obj.attrib['t'])
+    #     hdg = float(obj.attrib['hdg'])
+    #     width = float(obj.attrib['width'])
+    #     length = float(obj.attrib['length'])
+
+    #     transform = get_parking_space_transform(carla_map, s, t, hdg)
+    #     # Create bounding box located at origin, since transform will handle positioning
+    #     local_location = carla.Location(x=0, y=0, z=0)  # bounding box center at origin
+    #     extent = carla.Vector3D(length / 2, width / 2, 0.1)  # half sizes
+
+    #     bb = SimpleBoundingBox(local_location, extent, carla.Rotation())  # no local rotation
+
+    #     mark_bounding_box(grid, bb, center, cell_size, value=1, transform=transform)
+
+
+    for obj in root.findall(".//object"):
+        name = obj.attrib.get('name', '')
+        obj_type = obj.attrib.get('type', '')
+        s = float(obj.attrib.get('s', 0))
+        t = float(obj.attrib.get('t', 0))
+        hdg = float(obj.attrib.get('hdg', 0))
+        width = float(obj.attrib.get('width', 0))
+        length = float(obj.attrib.get('length', 0))
+    
+
+        # You may choose to filter only parking lines or spaces, e.g.:
+        if 'parking' in name.lower() or obj_type == 'parkingSpace':
+
+            # Your transform and bounding box construction logic here
+            transform = get_parking_space_transform(carla_map, s, t, hdg)
+            local_location = carla.Location(x=0, y=0, z=0)
+            extent = carla.Vector3D(length / 2, width / 2, 0.1)
+            bb = SimpleBoundingBox(local_location, extent, carla.Rotation())
+
+            mark_bounding_box(grid, bb, center, cell_size, value=1, transform=transform)
+
+
+
     
     return grid
 
@@ -164,8 +255,8 @@ all_actors = world.get_actors()
 # Filter for vehicles
 vehicles = all_actors.filter('vehicle.*')
 print(vehicles)
-
-ego_vehicle=vehicles[0]
+if len(vehicles)> 0:
+    ego_vehicle=vehicles[0]
 
 # # Find the vehicle with the matching role_name
 # target_vehicle_name = "hero"
@@ -185,12 +276,14 @@ ego_vehicle=vehicles[0]
 static_obstacle_grid = create_2d_obstacle_grid(world)
 
 
+# Save the static obstacle grid to a file
+np.save('final_grid.npy', static_obstacle_grid)
 
 
 # Start visualization in a separate thread
 
-vis_thread = threading.Thread(target=visualize_grid_animated, args=(static_obstacle_grid, ego_vehicle, 2, 200))
-vis_thread.start()
+#vis_thread = threading.Thread(target=visualize_grid_animated, args=(static_obstacle_grid, ego_vehicle, 2, 200))
+#vis_thread.start()
 
 # ego_vehicle.set_autopilot(True)
 # # Run the manual_control.py script
