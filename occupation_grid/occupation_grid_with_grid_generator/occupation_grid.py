@@ -76,6 +76,32 @@ class OccupationGrid:
             world_corners.append(world_corner)
         return world_corners
     
+    def mark_other_vehicles(self, grid, ego_vehicle):
+        new_grid = grid.copy()
+        ego_bb = ego_vehicle.bounding_box
+        ego_transform = ego_vehicle.get_transform()
+        car_box_index = self.mark_bounding_box(new_grid, ego_bb, self.center, self.cell_size, value=1, transform=ego_transform)
+        return new_grid, car_box_index
+    
+    def generate_occupation_grid_baseline(self, ego_vehicle, other_vehicles = None):
+        # Mark ego vehicle on the grid
+        current_grid, car_box_index = self.mark_ego_vehicle(self.grid, ego_vehicle)
+                # Draw polygons directly onto the full colored grid
+        if other_vehicles is not None:
+            for vehicle in other_vehicles:
+                current_grid, _ = self.mark_other_vehicles(
+                    current_grid, vehicle # Using black for road lines
+                )
+        # Convert grid to color image
+        colored_grid = self.color_map[current_grid]
+        # Save the colored grid as a text file (each pixel as RGB tuple)
+        #np.savetxt("colored_grid.txt", colored_grid.reshape(-1, 3), fmt='%d')
+        if(self.visualization_running):
+            return current_grid,colored_grid
+        else:
+            return current_grid, car_box_index        
+
+    
     def mark_polygons_on_grid(self, grid, polygons, center = None, cell_size = None, value=3):
         if center is None:
             center = self.center
