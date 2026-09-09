@@ -75,11 +75,13 @@ python -m pip install -r requirements.txt
 python -m pip install Carla_module/carla-0.9.15-cp310-cp310-linux_x86_64.whl
 ~~~
 
-Then follow the map-installation and source-build steps in [docs/SETUP.md](docs/SETUP.md), start CARLA with `Town_Valet_Parking_final`, and launch the complete local stack (master plus two controllers):
+Then follow the map-installation and source-build steps in [docs/SETUP.md](docs/SETUP.md), start CARLA with `Town_Valet_Parking_final`, and launch the complete local stack in the required order (synchronizer, then two controllers):
 
 ~~~bash
-./launch_cars.sh
+./run_experiment.sh
 ~~~
+
+`run_experiment.sh` is the recommended entrypoint. `launch_cars.sh` remains available when the synchronizer has already been started in another terminal.
 
 ## Project contents
 

@@ -124,11 +124,11 @@ From the branch root:
 
 ```bash
 source .venv/bin/activate
-chmod +x launch_cars.sh
-./launch_cars.sh
+chmod +x run_experiment.sh launch_cars.sh
+./run_experiment.sh
 ```
 
-`launch_cars.sh` opens the matching `synchroniser/synchroniser.py` master first, then the forward and reverse controllers in separate GNOME Terminal windows. Without GNOME Terminal, run these in three separate shells in this order:
+`run_experiment.sh` verifies that CARLA is reachable, opens the matching `synchroniser/synchroniser.py` master first, waits for its ZeroMQ endpoints, and then calls `launch_cars.sh` for the forward and reverse controllers. Without GNOME Terminal, run these in three separate shells in this order:
 
 ```bash
 python synchroniser/synchroniser.py
