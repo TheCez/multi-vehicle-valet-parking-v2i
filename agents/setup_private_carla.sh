@@ -3,7 +3,7 @@
 set -euo pipefail
 
 if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
-    echo "Usage: $0 /private/path/carla_0.9.15_perfect_private.zip [install-parent]" >&2
+    echo "Usage: $0 /private/path/carla_0.9.15_perfect_private.tar.gz [install-parent]" >&2
     exit 64
 fi
 
@@ -22,8 +22,12 @@ if [ ! -f "$WHEEL" ]; then
     echo "Matching CARLA wheel is missing from the checkout: $WHEEL" >&2
     exit 66
 fi
-if ! command -v unzip >/dev/null 2>&1; then
-    echo "Install the 'unzip' package first." >&2
+if ! command -v tar >/dev/null 2>&1; then
+    echo "Install the 'tar' package first." >&2
+    exit 69
+fi
+if ! command -v uv >/dev/null 2>&1; then
+    echo "Install uv first: https://docs.astral.sh/uv/" >&2
     exit 69
 fi
 if [ -e "$CARLA_DIR" ]; then
@@ -31,32 +35,31 @@ if [ -e "$CARLA_DIR" ]; then
     exit 73
 fi
 
-if unzip -Z1 "$ARCHIVE" | grep -Eq '(^/|(^|/)\.\.(/|$))'; then
+if tar -tzf "$ARCHIVE" | grep -Eq '(^/|(^|/)\.\.(/|$))'; then
     echo "Refusing an archive containing absolute or parent-directory paths." >&2
     exit 65
 fi
 
-top_level="$(unzip -Z1 "$ARCHIVE" | sed -n '1p' | cut -d/ -f1)"
+top_level="$(tar -tzf "$ARCHIVE" | sed -n '1p' | cut -d/ -f1)"
 if [ "$top_level" != "CARLA_0.9.15_perfect" ]; then
     echo "Archive must have CARLA_0.9.15_perfect as its top-level directory." >&2
     exit 65
 fi
-if ! unzip -Z1 "$ARCHIVE" | grep -qx 'CARLA_0.9.15_perfect/CarlaUE4.sh'; then
+if ! tar -tzf "$ARCHIVE" | grep -qx 'CARLA_0.9.15_perfect/CarlaUE4.sh'; then
     echo "Archive does not contain CARLA_0.9.15_perfect/CarlaUE4.sh." >&2
     exit 65
 fi
 
 mkdir -p "$INSTALL_PARENT"
-unzip -q "$ARCHIVE" -d "$INSTALL_PARENT"
+tar -xzf "$ARCHIVE" -C "$INSTALL_PARENT"
 if [ ! -x "$CARLA_DIR/CarlaUE4.sh" ]; then
     echo "CARLA archive extracted but CarlaUE4.sh is not executable." >&2
     exit 65
 fi
 
-python3.10 -m venv "$VENV_DIR"
-"$VENV_DIR/bin/python" -m pip install --upgrade pip
-"$VENV_DIR/bin/python" -m pip install -r "$ROOT_DIR/requirements.txt"
-"$VENV_DIR/bin/python" -m pip install "$WHEEL"
+uv venv --python 3.10 "$VENV_DIR"
+uv pip install --python "$VENV_DIR/bin/python" -r "$ROOT_DIR/requirements.txt"
+uv pip install --python "$VENV_DIR/bin/python" "$WHEEL"
 
 echo "Private CARLA installed at: $CARLA_DIR"
 echo "Environment ready at: $VENV_DIR"
