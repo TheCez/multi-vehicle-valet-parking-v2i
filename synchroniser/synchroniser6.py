@@ -437,8 +437,8 @@ class Master:
                                 #         f.write(f"{new_path_point[0] + min_r},{new_path_point[1] + min_c}\n")
                                 #         #f.write(f"{waypoint_og[0] + min_r},{waypoint_og[1] + min_c}\n")
                                 
-
-                                visualization_grid_view[waypoint_og[0] + min_r, waypoint_og[1] + min_c] = 7
+                                if waypoint_og is not None:
+                                    visualization_grid_view[waypoint_og[0] + min_r, waypoint_og[1] + min_c] = 7
            
 
                                 # self.conflict_solved = {}

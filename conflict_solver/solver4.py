@@ -72,6 +72,6 @@ def solve_conflict(conflict_area):
 
         # conflict_area[waypoint[0], waypoint[1]] = 4
         
-    return conflict_area , waypoint if start_path_finding else None, waypoint
+    return conflict_area , waypoint if start_path_finding else None, waypoint #if start_path_finding else None
     
     #pass
