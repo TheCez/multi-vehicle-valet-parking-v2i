@@ -1,63 +1,72 @@
-# Autonomous Valet Parking Simulation and Planning Stack
+# Multi-Vehicle Valet Parking with V2I Coordination
 
 <p align="center">
-  <img src="docs/media/master_thesis_logo.png" alt="Autonomous Valet Parking project logo" width="720">
+  <img src="docs/media/master_thesis_logo.png" alt="Autonomous valet parking project logo" width="640">
 </p>
 
-Research software for real-time multi-vehicle valet-parking experiments using CARLA, CommonRoad, CommonRoad-Reach, Hybrid A*, occupancy grids, and ZeroMQ.
+<p align="center">
+  <strong>CARLA · CommonRoad · Occupancy grids · Hybrid A* · ZeroMQ coordination</strong><br>
+  A reproducible research showcase for resolving traffic conflicts in autonomous multi-vehicle valet parking.
+</p>
 
-[Watch the demonstration video](docs/media/master_thesis_final_video.mp4) · [Portfolio case study](https://ajayc.dev/) · [Full setup guide](docs/SETUP.md) · [Archived variants](docs/BRANCHES.md)
+<p align="center">
+  <a href="docs/media/master_thesis_final_video.mp4">Watch the demonstration video</a> ·
+  <a href="https://ajayc.dev/">Project portfolio</a> ·
+  <a href="docs/SETUP.md">Reproduction guide</a> ·
+  <a href="docs/V2I_COMMUNICATION.md">V2I coordination notes</a>
+</p>
 
-## This snapshot
+> **Showcase branch:** `overlap_obs_with_decision_maker` — the recommended, final-map snapshot of the thesis work.
 
-| Field | Value |
+## Demo
+
+<video src="docs/media/master_thesis_final_video.mp4" controls muted playsinline width="100%">
+  Your browser does not support embedded video. Use the demonstration-video link above.
+</video>
+
+The demo shows the stack operating in the custom valet-parking environment: live CARLA state is converted into planning data, vehicle occupancies are compared, conflicts are detected, and updated trajectories are distributed to the simulated vehicles.
+
+## Why this project matters
+
+Multi-vehicle valet parking is a compact but demanding coordination problem: agents share constrained space, their planned trajectories can conflict, and a solution has to be computed quickly enough to remain useful. This project combines a realistic simulator with CommonRoad-based planning tools and a central communication layer to explore that problem end-to-end.
+
+| Contribution | What is implemented here |
 |---|---|
-| Archive branch | `thesis/overlap-obstacles-new-map` |
-| Variant | Overlapping-obstacle strategy on the final map |
-| CARLA map | `Town_Valet_Parking_final` |
-| Python | 3.10 |
-| CARLA | 0.9.15 source build, recorded revision `8e623cb41` |
+| CARLA-to-planning bridge | Captures simulator state and converts it into CommonRoad scenarios. |
+| Conflict prediction | Generates reachable sets and rasterized occupancy grids to identify spatiotemporal overlap. |
+| Decision making | Applies the branch's overlapping-obstacle strategy and Hybrid A* replanning. |
+| Multi-vehicle coordination | Uses a ZeroMQ synchronizer to collect state and distribute decisions. |
+| Reproducible custom world | Archives cooked map assets, source map data, OpenDRIVE, textures, and the matching CARLA Python wheel. |
 
-RoadRunner FBX, OpenDRIVE, metadata, textures, and cooked assets are archived.
-
-## What the project demonstrates
-
-- Captures live CARLA vehicle and obstacle state and converts it into CommonRoad planning scenarios.
-- Computes reachable sets and rasterized occupancy grids for conflict prediction.
-- Detects overlapping spatiotemporal occupancy between multiple vehicles.
-- Uses Hybrid A* and branch-specific decision strategies to update trajectories.
-- Synchronizes simulated vehicles and shares state through ZeroMQ.
-- Preserves several thesis experiments as separate branches instead of flattening them into one misleading implementation.
-
-## System flow
+## Architecture
 
 ~~~text
-CARLA 0.9.15 + custom map
-        |
-        v
-scene capture and CommonRoad conversion
-        |
-        v
-route / reachable-set / occupancy-grid generation
-        |
-        v
-multi-vehicle conflict detection
-        |
-        v
-decision strategy + Hybrid A* replanning
-        |
-        v
-CARLA controllers and ZeroMQ synchronization
+CARLA 0.9.15 + Town_Valet_Parking_final
+                 │
+                 ▼
+       scene capture / CommonRoad conversion
+                 │
+                 ▼
+ reachable sets + occupancy-grid generation
+                 │
+                 ▼
+  multi-vehicle conflict detection and decision maker
+                 │
+                 ▼
+        Hybrid A* trajectory update
+                 │
+                 ▼
+ ZeroMQ synchronizer ───────────────► CARLA vehicle controllers
 ~~~
 
 ## Quick start
 
-This is not a pip-only project. The custom map and Python API were produced with a CARLA 0.9.15 source build. Read [the complete reproduction guide](docs/SETUP.md) before installing.
+This is a source-build CARLA research project, not a pip-only package. The exact map assets and CARLA wheel are included, but a compatible CARLA 0.9.15 build is required to load or modify the custom map.
 
 ~~~bash
 git clone https://github.com/TheCez/multi-vehicle-valet-parking-v2i.git
 cd multi-vehicle-valet-parking-v2i
-git switch thesis/overlap-obstacles-new-map
+git switch overlap_obs_with_decision_maker
 
 python3.10 -m venv .venv
 source .venv/bin/activate
@@ -66,33 +75,38 @@ python -m pip install -r requirements.txt
 python -m pip install Carla_module/carla-0.9.15-cp310-cp310-linux_x86_64.whl
 ~~~
 
-Install or import `Town_Valet_Parking_final`, start the CARLA server, and then run:
+Then follow the map-installation and source-build steps in [docs/SETUP.md](docs/SETUP.md), start CARLA with `Town_Valet_Parking_final`, and launch the controllers:
 
 ~~~bash
 ./launch_cars.sh
 ~~~
 
-The matching `.umap`, `.uexp`, and `.xodr` files are under `carla_map/Maps/`. Where available, the RoadRunner source package is under `carla_map/source/`. Keep the cooked files together when copying them:
+## Project contents
 
-~~~bash
-export CARLA_INSTALL=/absolute/path/to/CARLA_0.9.15
-cp -a carla_map/Maps/. "$CARLA_INSTALL/CarlaUE4/Content/Carla/Maps/"
-~~~
+| Path | Purpose |
+|---|---|
+| `synchroniser/` | Central multi-vehicle coordination, vehicle state handling, and decision logic. |
+| `conflict_solver/` | Occupancy-grid conflict detection and resolution strategies. |
+| `occupation_grid/` | Occupancy-grid construction and visualization. |
+| `hybid_a_star_agent/` | Hybrid A* planning integration. |
+| `carla_map/` | Cooked map files plus the RoadRunner FBX/OpenDRIVE source package. |
+| `Carla_module/` | Archived CPython 3.10 CARLA 0.9.15 wheel matching this final-map setup. |
+| `runtime_patches/` | Only the modified CARLA and CommonRoad runtime files; no non-portable virtual environment. |
+| `docs/` | Setup, branch guide, communication design, media, and limitations. |
 
-If the map is not registered by a packaged CARLA build, import the supplied FBX/OpenDRIVE source through the pinned CARLA source checkout as described in [docs/SETUP.md](docs/SETUP.md).
+## Branches are experiments, not duplicates
 
-## Repository guide
+The repository deliberately preserves the thesis work as independent branches rather than blending incompatible experiments. `overlap_obs_with_decision_maker` is the default showcase. See [docs/BRANCHES.md](docs/BRANCHES.md) for the map, strategy, and source-folder mapping for every archived variant.
 
-- `CommonRoadSceneGenerator.py` and `carla_getter.py`: CARLA-to-CommonRoad scene generation.
-- `synchroniser/`: simulation coordination and decision logic.
-- `conflict_solver/`: conflict detection and resolution.
-- `occupation_grid/`: occupancy-grid generation.
-- `hybid_a_star_agent/`: Hybrid A* planning integration.
-- `Carla_module/`: archived CPython 3.10 CARLA wheel.
-- `runtime_patches/`: only the modified CARLA/CommonRoad runtime files and patches.
-- `carla_map/`: branch-specific source and cooked map assets.
-- `docs/media/`: project logo and demonstration video from the portfolio.
+## Reproducibility and limitations
 
-## Research status
+- Pinned target: **CARLA 0.9.15**, **Python 3.10**, Linux x86_64; recorded CARLA source revision `8e623cb41`.
+- The custom map can be copied as cooked assets, but editing/reimporting it requires the CARLA source build process. The included FBX, OpenDRIVE, textures, and import manifest are the authoritative archival inputs.
+- The central ZeroMQ layer is a research-oriented V2I-style coordination mechanism, not a secured production V2X protocol. Its endpoints and operational limits are documented in [docs/V2I_COMMUNICATION.md](docs/V2I_COMMUNICATION.md).
+- The repository intentionally excludes copied virtual environments and proprietary RoadRunner/Unreal plugins. It retains the specific modified library file and a patch instead.
 
-This repository is an archival research snapshot from the master's thesis “Computation and Validation of Occupancy Grids for Solving Traffic Conflicts in Multi-vehicle Trajectory Planning.” It is presented for reproducibility and technical review, not as a production autonomous-driving system.
+## Thesis context
+
+This repository archives the master's-thesis project **“Computation and Validation of Occupancy Grids for Solving Traffic Conflicts in Multi-vehicle Trajectory Planning.”** It is provided for technical review and reproducibility, not as a production autonomous-driving system.
+
+Project identity, logo, and demonstration media are reproduced from the [project portfolio](https://ajayc.dev/).
