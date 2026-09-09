@@ -67,6 +67,66 @@ class CommonRoadVisualizer(QMainWindow):
         #     return
         # Draw the scenario (includes lanelets, obstacles, etc.)
         self.scenario.draw(self.canvas.mp_renderer)
+
+        # # Get all actors in the world
+        # all_actors = self.world.get_actors()
+    
+        # # Filter actors whose type_id contains 'wall'
+        # walls = all_actors.filter('static.prop.*')
+
+        # print(f"Number of wall obstacles: {len(walls)}")
+
+        # Precompute ego pose in CommonRoad frame
+        # #transform = self.ego_vehicle.get_transform()
+        # transform = carla.Transform(
+        #     location=carla.Location(x=0.0, y=0.0, z=0.0),
+        #     rotation=carla.Rotation(pitch=0.0, yaw=180.0, roll=0.0)
+        # )
+
+        # walls = self.world.get_level_bbs(carla.CityObjectLabel.Other)
+        # wall_obstacles = []
+
+        # for bb in walls:
+        #     world_verts = bb.get_world_vertices(transform)
+        #     # 2. Extract their x‐ and y‐coordinates into NumPy arrays
+        #     xs = np.array([v.x for v in world_verts])
+        #     ys = np.array([v.y for v in world_verts])
+
+        #     # 3. Center point is simply the mean of the vertices
+        #     center_x = xs.mean()
+        #     center_y = ys.mean()
+        #     center = carla.Location(x=center_x, y=center_y, z=0)
+
+        #     # 4. Length and width are the spans of x and y extents
+        #     length  = (xs.max() - xs.min())/2   # full length in meters
+        #     width   = (ys.max() - ys.min()) /2  # full width in meters
+        #     # 5. Orientation is the angle of the vector from min to max x
+        #     orientation = math.atan2(ys.max() - ys.min(), xs.max() - xs.min())
+
+        #     #orientation = math.radians(bb.rotation.yaw)
+
+        #     center = np.array([-center_x, center_y])
+
+        #     wall_rect = Rectangle(length=length, width=width, center=center)
+        #     wall_obstacle = StaticObstacle(
+        #         obstacle_id=self.scenario.generate_object_id(),
+        #         obstacle_type=ObstacleType.UNKNOWN,
+        #         obstacle_shape=wall_rect,
+        #         initial_state=InitialState(
+        #             position=center,
+        #             orientation=orientation,
+        #             time_step=0
+        #         )
+        #     )
+        #     wall_obstacles.append(wall_obstacle)
+
+
+
+
+        # self.scenario.add_objects(wall_obstacles)
+        # for wall_obstacle in wall_obstacles:
+        #     wall_obstacle.draw(self.canvas.mp_renderer)
+
         
         # Draw planning problem (includes initial and goal states)
         if hasattr(self.planning_problem, 'draw'):

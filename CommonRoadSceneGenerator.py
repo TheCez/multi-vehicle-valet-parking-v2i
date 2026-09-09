@@ -116,7 +116,8 @@ class CommonRoadSceneGenerator:
         self.reference_path = reference_path
         # Load the converted scenario
         #scenario_path = "DEU_valetparking-1_1_T-1_base.xml"
-        scenario_path = "ZAM_MUC-1_1_T-1.xml"
+        #scenario_path = "ZAM_MUC-1_1_T-1.xml"
+        scenario_path = "converted_scenario_with_obstacles.xml" 
         self.scenario, _ = CommonRoadFileReader(scenario_path).open()
 
         # Connect to the client and retrieve the world object

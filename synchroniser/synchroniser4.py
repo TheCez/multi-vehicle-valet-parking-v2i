@@ -290,8 +290,10 @@ class Master:
                                                         'max_col': max_col
                                                     }
                                                 }
+                                                self.conflict_solved = {subscriber_id: 'No Conflict' for subscriber_id in occupancy_grids.keys()}
                                             else:
                                                 self.conflict_solved[subscriber_id] = 'Stop'
+                                                self.conflict_solved = {subscriber_id: 'No Conflict' for subscriber_id in occupancy_grids.keys()}
                                 else:
                                     self.conflict_solved = {subscriber_id: 'No Conflict' for subscriber_id in occupancy_grids.keys()}
                             else:

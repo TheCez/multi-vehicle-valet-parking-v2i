@@ -1,0 +1,11 @@
+{
+  "maps": [
+    {
+      "name": "Town_Valet_Parking_Lines",
+      "source": "./Town_Valet_Parking_Lines/Town_Valet_Parking_Lines.fbx",
+      "use_carla_materials": false,
+      "xodr": "./Town_Valet_Parking_Lines/Town_Valet_Parking_Lines.xodr"
+    }
+  ],
+  "props": []
+}
