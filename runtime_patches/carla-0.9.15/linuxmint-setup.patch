@@ -1,0 +1,13 @@
+diff --git a/PythonAPI/carla/setup.py b/PythonAPI/carla/setup.py
+index 1e4b86b7b..94a8b2e5b 100755
+--- a/PythonAPI/carla/setup.py
++++ b/PythonAPI/carla/setup.py
+@@ -33,7 +33,7 @@ def get_libcarla_extensions():
+
+     if os.name == "posix":
+         import distro
+-        supported_dists = ["ubuntu", "debian", "deepin"]
++        supported_dists = ["ubuntu", "debian", "deepin", "linuxmint"]
+
+         linux_distro = distro.id().lower()
+         if linux_distro in supported_dists:
