@@ -13,7 +13,7 @@ commonroad-drivability-checker==2025.1
 commonroad-io==2024.3
 commonroad-reach==2025.1.0
 commonroad-route-planner==2025.1.0
-commonroad-scenario-designer==0.8.5
+commonroad-scenario-designer==0.8.4
 commonroad-vehicle-models==3.0.2
 contourpy==1.3.2
 cycler==0.12.1

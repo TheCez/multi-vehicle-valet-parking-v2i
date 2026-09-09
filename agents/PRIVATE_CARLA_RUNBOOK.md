@@ -20,7 +20,7 @@ The archive must contain one top-level directory named `CARLA_0.9.15_perfect/`, 
 
 1. Confirm the checkout is on `overlap_obs_with_decision_maker` and that no server is already listening on ports 2000, 2001, 5555, 5556, or 5557.
 2. Confirm the archive is private and is **not** inside the Git checkout.
-3. Run the setup helper. It validates the archive layout, unpacks the archive beside the repository when absent, and creates `.venv` with **uv**, Python 3.10, the matching dependencies, and the CARLA wheel. It never overwrites an existing incomplete CARLA directory; a valid prior extraction is reused so a failed dependency install can be resumed safely.
+3. Run the setup helper. It validates the archive layout, unpacks the archive beside the repository when absent, and creates `.venv` with **uv**, Python 3.10, the matching CARLA wheel, and the thesis runtime baseline. It also installs the archived modified Scenario Designer converter from `runtime_patches/commonroad-scenario-designer-0.8.4/`. This deliberately reproduces the known working patched package combination instead of silently substituting a newer upstream library. It never overwrites an existing incomplete CARLA directory; a valid prior extraction is reused so a failed dependency install can be resumed safely.
 
 ```bash
 cd multi-vehicle-valet-parking-v2i

@@ -13,6 +13,7 @@ INSTALL_PARENT="${2:-$(dirname "$ROOT_DIR")}"
 CARLA_DIR="$INSTALL_PARENT/CARLA_0.9.15_perfect"
 VENV_DIR="$ROOT_DIR/.venv"
 WHEEL="$ROOT_DIR/Carla_module/carla-0.9.15-cp310-cp310-linux_x86_64.whl"
+CRDESIGNER_PATCH="$ROOT_DIR/runtime_patches/commonroad-scenario-designer-0.8.4/crdesigner"
 
 if [ ! -f "$ARCHIVE" ]; then
     echo "Private CARLA archive not found: $ARCHIVE" >&2
@@ -65,8 +66,25 @@ else
 fi
 
 uv venv --python 3.10 "$VENV_DIR"
-uv pip install --python "$VENV_DIR/bin/python" -r "$ROOT_DIR/requirements.txt"
+# requirements.txt records the known working thesis environment. Its Scenario
+# Designer is intentionally patched below and has legacy metadata that conflicts
+# with the newer CommonRoad packages, so preserve this tested combination rather
+# than allowing a resolver to replace it with an incompatible upstream release.
+uv pip install --no-deps --python "$VENV_DIR/bin/python" -r "$ROOT_DIR/requirements.txt"
 uv pip install --python "$VENV_DIR/bin/python" "$WHEEL"
+
+if [ ! -f "$CRDESIGNER_PATCH/map_conversion/opendrive/cr2odr/elements/road.py" ]; then
+    echo "Modified Scenario Designer converter is missing: $CRDESIGNER_PATCH" >&2
+    exit 66
+fi
+SITE_PACKAGES="$("$VENV_DIR/bin/python" -c 'import site; print(site.getsitepackages()[0])')"
+rsync -a "$CRDESIGNER_PATCH/" "$SITE_PACKAGES/crdesigner/"
+"$VENV_DIR/bin/python" - <<'PY'
+import carla
+import zmq
+from crdesigner.map_conversion.opendrive.cr2odr.elements.road import Road
+print("Verified CARLA, ZeroMQ, and patched Scenario Designer:", Road.__module__)
+PY
 
 echo "Private CARLA installed at: $CARLA_DIR"
 echo "Environment ready at: $VENV_DIR"
