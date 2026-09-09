@@ -35,17 +35,21 @@ if [ -e "$CARLA_DIR" ]; then
     exit 73
 fi
 
-if tar -tzf "$ARCHIVE" | grep -Eq '(^/|(^|/)\.\.(/|$))'; then
+ARCHIVE_LISTING="$(mktemp)"
+trap 'unlink "$ARCHIVE_LISTING" 2>/dev/null || true' EXIT
+tar -tzf "$ARCHIVE" > "$ARCHIVE_LISTING"
+
+if grep -Eq '(^/|(^|/)\.\.(/|$))' "$ARCHIVE_LISTING"; then
     echo "Refusing an archive containing absolute or parent-directory paths." >&2
     exit 65
 fi
 
-top_level="$(tar -tzf "$ARCHIVE" | sed -n '1p' | cut -d/ -f1)"
+top_level="$(sed -n '1p' "$ARCHIVE_LISTING" | cut -d/ -f1)"
 if [ "$top_level" != "CARLA_0.9.15_perfect" ]; then
     echo "Archive must have CARLA_0.9.15_perfect as its top-level directory." >&2
     exit 65
 fi
-if ! tar -tzf "$ARCHIVE" | grep -qx 'CARLA_0.9.15_perfect/CarlaUE4.sh'; then
+if ! grep -qx 'CARLA_0.9.15_perfect/CarlaUE4.sh' "$ARCHIVE_LISTING"; then
     echo "Archive does not contain CARLA_0.9.15_perfect/CarlaUE4.sh." >&2
     exit 65
 fi
