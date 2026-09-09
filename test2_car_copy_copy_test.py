@@ -1367,15 +1367,17 @@ def game_loop(args):
                             update_path_start = time.time()
                             if updated_path is not None:
                                 new_path = stitch_paths(path, updated_path, conflict_area_bounds, padding)
+                                path_follower = follow_path_with_pid(world.player, new_path, speed=6)
+                                print("Calculated final path after conflict resolution")
                             # Add the last destination to the path after conflict resolution
                             # if last_destination is not None:
                             #     np.append(path.x, last_destination[0])
                             #     np.append(path.y, last_destination[1])
                             else:
-                                print('No new path found after conflict resolution')
-                            
-                            path_follower = follow_path_with_pid(world.player, new_path, speed=6)
-                            print("Calculated final path after conflict resolution")
+                                # No replan found: keep following the existing path_follower/new_path
+                                # instead of rebuilding it from a None path, which crashed the next
+                                # next(path_follower) call with AttributeError: 'NoneType' has no 'x'.
+                                print('No new path found after conflict resolution, keeping current path')
                             player_x, player_y = hybrid_astar.world_to_grid(player_x, player_y, 500 // 2, 0.5)
                             player_x = player_x - conflict_area_bounds['min_col']
                             player_y = player_y - conflict_area_bounds['min_row']
