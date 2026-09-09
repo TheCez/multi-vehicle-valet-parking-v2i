@@ -653,6 +653,68 @@ def path_finder(sx, sy, syaw0, gx, gy, gyaw0, occupation_grid):
     print("Done!")
     return path
 
+def path_finder2(sx, sy, syaw0, gx, gy, gyaw0, occupation_grid):
+    print("start!")
+    #x, y = 500, 500
+    # Convert CARLA world coordinates to grid coordinates
+    # Assumptions: 
+    # - occupation_grid is a path to the .npy file
+    # - grid is square (grid_size x grid_size)
+    # - center is at grid_size // 2
+    # - cell_size is known (meters per cell)
+    grid = occupation_grid
+    grid_size = grid.shape[0]
+    center = grid_size // 2
+    cell_size = 0.5  # <-- set this to your cell size in meters
+
+  
+
+    sx, sy = world_to_grid(sx, sy, center, cell_size)
+    # gx, gy = world_to_grid(gx, gy, center, cell_size)
+    # Yaw does not need conversion if it's in radians and matches grid orientation
+    ox, oy = convert_grid_to_obstacles(occupation_grid)
+    path = hybrid_astar_planning(sx, sy, syaw0, gx, gy, gyaw0,
+                                 ox, oy, C.XY_RESO, C.YAW_RESO)
+    
+    x = path.x
+    y = path.y
+    yaw = path.yaw
+    direction = path.direction
+    # frames = []
+
+    # for k in range(len(x)):
+    #     plt.cla()
+    #     plt.plot(ox, oy, "sk")
+    #     plt.plot(x, y, linewidth=1, color='r')
+    #     #plt.gca().invert_xaxis()
+    #     plt.gca().invert_yaxis()
+
+    #     # Get current axis for drawing blue box
+    #     ax = plt.gca()
+        
+    #     # Draw blue box at current position with current yaw
+    #     draw_blue_box(ax, x[k], y[k], yaw[k])
+
+    #     if k < len(x) - 2:
+    #         dy = (yaw[k + 1] - yaw[k]) / C.MOVE_STEP
+    #         steer = rs.pi_2_pi(math.atan(-C.WB * dy / direction[k]))
+    #     else:
+    #         steer = 0.0
+
+    #     draw_car(gx, gy, gyaw0, 0.0, 'dimgray')
+    #     draw_car(x[k], y[k], yaw[k], steer)
+    #     plt.title("Hybrid A*")
+    #     plt.axis("equal")
+    #     plt.pause(0.0001)
+    #     buf = io.BytesIO()
+    #     plt.savefig(buf, format='png')
+    #     buf.seek(0)
+    #     frames.append(Image.open(buf))
+
+    # plt.show()
+    print("Done!")
+    return path
+
 def short_path_finder(sx, sy, syaw0, gx, gy, gyaw0, occupation_grid, min_x, min_y, pad_x, pad_y):
     print("start!")
     #x, y = 500, 500
