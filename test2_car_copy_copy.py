@@ -102,6 +102,7 @@ def get_actor_display_name(actor, truncate=250):
 
 def get_actor_blueprints(world, filter, generation):
     bps = world.get_blueprint_library().filter(filter)
+    # bps.set_attribute('color', '255,255,255')
 
     if generation.lower() == "all":
         return bps
@@ -171,7 +172,7 @@ class World(object):
         blueprint.set_attribute('role_name', 'hero')
         if blueprint.has_attribute('color'):
             color = random.choice(blueprint.get_attribute('color').recommended_values)
-            blueprint.set_attribute('color', color)
+            blueprint.set_attribute('color', '255,255,255')
 
         # Spawn the player.
         if self.player is not None:
@@ -1093,10 +1094,10 @@ def game_loop(args):
                         # Update visualization
                 reachability_calculation_start = time.time()
                 # Get all car objects except the ego vehicle
-                # all_vehicles = world.world.get_actors().filter('vehicle.*')
-                # other_cars = [v for v in all_vehicles if v.id != world.player.id]
-                # polygons,  decision_polygons = window.update_visualization(other_cars=other_cars)
-                polygons,  decision_polygons = window.update_visualization()
+                all_vehicles = world.world.get_actors().filter('vehicle.*')
+                other_cars = [v for v in all_vehicles if v.id != world.player.id]
+                polygons,  decision_polygons = window.update_visualization(other_cars=other_cars)
+                # polygons,  decision_polygons = window.update_visualization()
                 reachability_calculation_end = time.time()
                 occupationgrid_generation_start = time.time()
                 reach_occupancygrid, car_box_index = occupationgrid.generate_occupation_grid(world.player, polygons)

@@ -7,7 +7,7 @@ import threading
 import numpy as np
 import pickle
 from occupation_grid.occupation_grid_with_grid_generator.occupation_grid_visualizer import OccupationGridVisualizer
-from conflict_solver.solver4 import solve_conflict
+from conflict_solver.solver5 import solve_conflict
 import os
 import queue
 import argparse
@@ -417,7 +417,7 @@ class Master:
 
                                 #conflict_area_temp = conflict_area.copy()
                                 
-                                conflict_area, new_path_point, waypoint_og = solve_conflict(conflict_area)
+                                conflict_area, new_path_point, stop, waypoint_og = solve_conflict(conflict_area)
 
                                 # Save photo of the conflict area after solving
                                 if self.collect_data:
@@ -437,8 +437,8 @@ class Master:
                                 #         f.write(f"{new_path_point[0] + min_r},{new_path_point[1] + min_c}\n")
                                 #         #f.write(f"{waypoint_og[0] + min_r},{waypoint_og[1] + min_c}\n")
                                 
-
-                                visualization_grid_view[waypoint_og[0] + min_r, waypoint_og[1] + min_c] = 7
+                                if waypoint_og is not None:
+                                    visualization_grid_view[waypoint_og[0] + min_r, waypoint_og[1] + min_c] = 7
            
 
                                 # self.conflict_solved = {}

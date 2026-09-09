@@ -21,9 +21,9 @@ name_scenario: valet_parking
 planning:
   coordinate_system: CART
   dt: 0.1
-  o_initial: -1.4798363260793492
-  p_lat_initial: -64.57540893554688
-  p_lon_initial: 24.257226943969727
+  o_initial: -0.9019012744972454
+  p_lat_initial: -49.0273323059082
+  p_lon_initial: 24.029027938842773
   reference_point: CENTER
   step_start: 0
   steps_computation: 12
@@ -31,8 +31,8 @@ planning:
   uncertainty_p_lon: 0.01
   uncertainty_v_lat: 0.01
   uncertainty_v_lon: 0.01
-  v_lat_initial: -6.971061934326257
-  v_lon_initial: 0.6358423607998027
+  v_lat_initial: -4.085252897738796
+  v_lon_initial: 3.229217813830186
 reachable_set:
   consider_traffic: true
   exclude_small_components_corridor: false
@@ -42,7 +42,7 @@ reachable_set:
   n_multi_steps: 6
   name_pickle_offline: offline_nt10_CVLN_alonmax11.5_alatmax2.0_vlonmax50.8_vlatmax4.0_ms6_dx0.5_ver0.0.1.pickle
   num_threads: 4
-  path_to_lut: /home/thecez/thesis/commonroad_generator6/external/matlab
+  path_to_lut: /home/thecez/thesis/commonroad_generator7/external/matlab
   prune_nodes_not_reaching_final_step: true
   radius_terminal_split: 0.7
   rasterize_exclude_static: true
