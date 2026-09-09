@@ -128,9 +128,10 @@ chmod +x launch_cars.sh
 ./launch_cars.sh
 ```
 
-`launch_cars.sh` opens the forward and reverse controllers in separate GNOME Terminal windows. Without GNOME Terminal, run these in separate shells:
+`launch_cars.sh` opens the matching `synchroniser/synchroniser.py` master first, then the forward and reverse controllers in separate GNOME Terminal windows. Without GNOME Terminal, run these in three separate shells in this order:
 
 ```bash
+python synchroniser/synchroniser.py
 python automatic_control_main_path_planning_test.py --sync
 python automatic_control_main_path_planning_test_reverse.py --sync
 ```
