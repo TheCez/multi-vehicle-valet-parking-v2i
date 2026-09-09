@@ -6,12 +6,13 @@ Use this runbook only for the private, personal reproduction of the `overlap_obs
 
 1. Clone this repository and switch to `overlap_obs_with_decision_maker`.
 2. Obtain the private archive named `CARLA_0.9.15_perfect_private.tar.gz` from approved personal storage.
-3. Put that archive **beside** the clone, not inside Git:
+3. Put that archive in the clone root for a self-contained private workspace. It is locally excluded from Git; never add, commit, or upload it:
 
 ```text
-workspace/
+multi-vehicle-valet-parking-v2i/
 ├── CARLA_0.9.15_perfect_private.tar.gz
-└── multi-vehicle-valet-parking-v2i/
+├── agents/
+└── ...
 ```
 
 The archive must contain one top-level directory named `CARLA_0.9.15_perfect/`, including `CarlaUE4.sh`. This is the required compiled distribution for this branch: it matches `Town_Valet_Parking_final` and the bundled CPython 3.10 CARLA wheel.
@@ -24,7 +25,7 @@ The archive must contain one top-level directory named `CARLA_0.9.15_perfect/`, 
 
 ```bash
 cd multi-vehicle-valet-parking-v2i
-./agents/setup_private_carla.sh ../CARLA_0.9.15_perfect_private.tar.gz
+./agents/setup_private_carla.sh ./CARLA_0.9.15_perfect_private.tar.gz
 ```
 
 4. Activate the environment and start the private CARLA distribution in terminal 1 **with its graphical window visible**. Do not pass `-RenderOffScreen`, `-nullrhi`, or any headless option.
